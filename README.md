@@ -57,32 +57,52 @@ Overall song score = sum(weight * similarity for each feature). Weights sum to 1
 
 
 ### Similarity Matrix for Categorical Features
-Since different moods and genres can be similar in the type of songs, having a discrete 1 or 0 if the equal or not wouldn't make sense, so having fuzzy matching based on relatedness makes more sense. Here they are:
+Since different moods and genres can be similar in the type of songs, having a discrete 1 or 0 if they equal or not wouldn't make sense, so having fuzzy matching based on relatedness makes more sense. Here they are:
 
 #### Genre Similarity Matrix
-(7x7, unique genres: ambient, indie pop, jazz, lofi, pop, rock, synthwave)
+(17x17, unique genres: ambient, classical, country, edm, electronic, folk, gospel, hip-hop, indie pop, jazz, lofi, metal, pop, reggae, rock, synthwave, world)
 
-| Genre      | ambient | indie pop | jazz | lofi | pop | rock | synthwave |
-|------------|---------|-----------|------|------|-----|------|----------|
-| ambient   | 1.0    | 0.4      | 0.5 | 0.8 | 0.3| 0.2 | 0.6     |
-| indie pop | 0.4    | 1.0      | 0.6 | 0.5 | 0.9| 0.7 | 0.5     |
-| jazz      | 0.5    | 0.6      | 1.0 | 0.6 | 0.5| 0.4 | 0.4     |
-| lofi      | 0.8    | 0.5      | 0.6 | 1.0 | 0.4| 0.3 | 0.5     |
-| pop       | 0.3    | 0.9      | 0.5 | 0.4 | 1.0| 0.6 | 0.7     |
-| rock      | 0.2    | 0.7      | 0.4 | 0.3 | 0.6| 1.0 | 0.5     |
-| synthwave | 0.6    | 0.5      | 0.4 | 0.5 | 0.7| 0.5 | 1.0     |
+| Genre      | ambient | classical | country | edm | electronic | folk | gospel | hip-hop | indie pop | jazz | lofi | metal | pop | reggae | rock | synthwave | world |
+|------------|---------|-----------|---------|-----|------------|------|--------|----------|-----------|------|------|-------|-----|--------|------|----------|-------|
+| ambient   | 1.0    | 0.5      | 0.3    | 0.5 | 0.6       | 0.4 | 0.3   | 0.2     | 0.3      | 0.4 | 0.8 | 0.1  | 0.2 | 0.3   | 0.2 | 0.7     | 0.4  |
+| classical | 0.5    | 1.0      | 0.4    | 0.2 | 0.3       | 0.6 | 0.7   | 0.1     | 0.5      | 0.8 | 0.4 | 0.2  | 0.4 | 0.3   | 0.3 | 0.2     | 0.5  |
+| country   | 0.3    | 0.4      | 1.0    | 0.2 | 0.2       | 0.8 | 0.5   | 0.3     | 0.6      | 0.4 | 0.3 | 0.4  | 0.5 | 0.4   | 0.7 | 0.1     | 0.4  |
+| edm       | 0.5    | 0.2      | 0.2    | 1.0 | 0.9       | 0.2 | 0.3   | 0.6     | 0.4      | 0.2 | 0.4 | 0.3  | 0.7 | 0.4   | 0.4 | 0.8     | 0.3  |
+| electronic| 0.6    | 0.3      | 0.2    | 0.9 | 1.0       | 0.3 | 0.3   | 0.5     | 0.4      | 0.3 | 0.5 | 0.3  | 0.6 | 0.4   | 0.4 | 0.8     | 0.4  |
+| folk      | 0.4    | 0.6      | 0.8    | 0.2 | 0.3       | 1.0 | 0.5   | 0.2     | 0.7      | 0.5 | 0.5 | 0.3  | 0.5 | 0.4   | 0.6 | 0.2     | 0.5  |
+| gospel    | 0.3    | 0.7      | 0.5    | 0.3 | 0.3       | 0.5 | 1.0   | 0.4     | 0.5      | 0.8 | 0.3 | 0.2  | 0.6 | 0.5   | 0.4 | 0.2     | 0.7  |
+| hip-hop   | 0.2    | 0.1      | 0.3    | 0.6 | 0.5       | 0.2 | 0.4   | 1.0     | 0.5      | 0.3 | 0.3 | 0.4  | 0.8 | 0.7   | 0.5 | 0.4     | 0.5  |
+| indie pop | 0.3    | 0.5      | 0.6    | 0.4 | 0.4       | 0.7 | 0.5   | 0.5     | 1.0      | 0.6 | 0.4 | 0.5  | 0.9 | 0.4   | 0.7 | 0.4     | 0.4  |
+| jazz      | 0.4    | 0.8      | 0.4    | 0.2 | 0.3       | 0.5 | 0.8   | 0.3     | 0.6      | 1.0 | 0.5 | 0.2  | 0.5 | 0.4   | 0.4 | 0.3     | 0.6  |
+| lofi      | 0.8    | 0.4      | 0.3    | 0.4 | 0.5       | 0.5 | 0.3   | 0.3     | 0.4      | 0.5 | 1.0 | 0.2  | 0.3 | 0.3   | 0.3 | 0.5     | 0.4  |
+| metal     | 0.1    | 0.2      | 0.4    | 0.3 | 0.3       | 0.3 | 0.2   | 0.4     | 0.5      | 0.2 | 0.2 | 1.0  | 0.4 | 0.2   | 0.9 | 0.3     | 0.3  |
+| pop       | 0.2    | 0.4      | 0.5    | 0.7 | 0.6       | 0.5 | 0.6   | 0.8     | 0.9      | 0.5 | 0.3 | 0.4  | 1.0 | 0.5   | 0.6 | 0.6     | 0.4  |
+| reggae    | 0.3    | 0.3      | 0.4    | 0.4 | 0.4       | 0.4 | 0.5   | 0.7     | 0.4      | 0.4 | 0.3 | 0.2  | 0.5 | 1.0   | 0.3 | 0.3     | 0.8  |
+| rock      | 0.2    | 0.3      | 0.7    | 0.4 | 0.4       | 0.6 | 0.4   | 0.5     | 0.7      | 0.4 | 0.3 | 0.9  | 0.6 | 0.3   | 1.0 | 0.4     | 0.4  |
+| synthwave | 0.7    | 0.2      | 0.1    | 0.8 | 0.8       | 0.2 | 0.2   | 0.4     | 0.4      | 0.3 | 0.5 | 0.3  | 0.6 | 0.3   | 0.4 | 1.0     | 0.3  |
+| world     | 0.4    | 0.5      | 0.4    | 0.3 | 0.4       | 0.5 | 0.7   | 0.5     | 0.4      | 0.6 | 0.4 | 0.3  | 0.4 | 0.8   | 0.4 | 0.3     | 1.0  |
 
 #### Mood Similarity Matrix
-(6x6, unique moods: chill, focused, happy, intense, moody, relaxed)
+(16x16, unique moods: chill, energetic, exhilarated, focused, happy, hopeful, inspired, intense, laid-back, melancholic, moody, nostalgic, peaceful, playful, relaxed, tribal)
 
-| Mood     | chill | focused | happy | intense | moody | relaxed |
-|----------|-------|---------|-------|---------|-------|---------|
-| chill   | 1.0  | 0.8    | 0.5  | 0.3    | 0.6  | 0.9    |
-| focused | 0.8  | 1.0    | 0.4  | 0.5    | 0.5  | 0.7    |
-| happy   | 0.5  | 0.4    | 1.0  | 0.6    | 0.3  | 0.6    |
-| intense | 0.3  | 0.5    | 0.6    | 1.0    | 0.7  | 0.4    |
-| moody   | 0.6  | 0.5    | 0.3    | 0.7    | 1.0  | 0.5    |
-| relaxed | 0.9  | 0.7    | 0.6    | 0.4    | 0.5  | 1.0    |
+| Mood       | chill | energetic | exhilarated | focused | happy | hopeful | inspired | intense | laid-back | melancholic | moody | nostalgic | peaceful | playful | relaxed | tribal |
+|------------|-------|-----------|-------------|---------|-------|---------|----------|---------|-----------|-------------|-------|-----------|----------|---------|---------|--------|
+| chill     | 1.0  | 0.4      | 0.3        | 0.8    | 0.5  | 0.6    | 0.5     | 0.3    | 0.9      | 0.6        | 0.7  | 0.7      | 0.9     | 0.4    | 0.9    | 0.4   |
+| energetic | 0.4  | 1.0      | 0.8        | 0.6    | 0.7  | 0.7    | 0.6     | 0.9    | 0.5      | 0.3        | 0.4  | 0.4      | 0.4     | 0.8    | 0.5    | 0.6   |
+| exhilarated| 0.3  | 0.8      | 1.0        | 0.5    | 0.8  | 0.7    | 0.7     | 0.9    | 0.4      | 0.2        | 0.3  | 0.3      | 0.3     | 0.9    | 0.4    | 0.5   |
+| focused   | 0.8  | 0.6      | 0.5        | 1.0    | 0.4  | 0.6    | 0.6     | 0.5    | 0.7      | 0.5        | 0.6  | 0.6      | 0.7     | 0.4    | 0.7    | 0.4   |
+| happy     | 0.5  | 0.7      | 0.8        | 0.4    | 1.0  | 0.8    | 0.8     | 0.6    | 0.6      | 0.3        | 0.4  | 0.5      | 0.5     | 0.9    | 0.6    | 0.5   |
+| hopeful   | 0.6  | 0.7      | 0.7        | 0.6    | 0.8  | 1.0    | 0.9     | 0.5    | 0.6      | 0.4        | 0.5  | 0.7      | 0.6     | 0.7    | 0.7    | 0.5   |
+| inspired  | 0.5  | 0.6      | 0.7        | 0.6    | 0.8  | 0.9    | 1.0     | 0.5    | 0.5      | 0.4        | 0.5  | 0.8      | 0.5     | 0.7    | 0.6    | 0.6   |
+| intense   | 0.3  | 0.9      | 0.9        | 0.5    | 0.6  | 0.5    | 0.5     | 1.0    | 0.4      | 0.7        | 0.8  | 0.4      | 0.3     | 0.6    | 0.4    | 0.7   |
+| laid-back | 0.9  | 0.5      | 0.4        | 0.7    | 0.6  | 0.6    | 0.5     | 0.4    | 1.0      | 0.5        | 0.6  | 0.6      | 0.8     | 0.5    | 0.9    | 0.5   |
+| melancholic| 0.6  | 0.3      | 0.2        | 0.5    | 0.3  | 0.4    | 0.4     | 0.7    | 0.5      | 1.0        | 0.9  | 0.7      | 0.6     | 0.2    | 0.5    | 0.4   |
+| moody     | 0.7  | 0.4      | 0.3        | 0.6    | 0.4  | 0.5    | 0.5     | 0.8    | 0.6      | 0.9        | 1.0  | 0.6      | 0.6     | 0.3    | 0.6    | 0.5   |
+| nostalgic | 0.7  | 0.4      | 0.3        | 0.6    | 0.5  | 0.7    | 0.8     | 0.4    | 0.6      | 0.7        | 0.6  | 1.0      | 0.7     | 0.4    | 0.7    | 0.5   |
+| peaceful  | 0.9  | 0.4      | 0.3        | 0.7    | 0.5  | 0.6    | 0.5     | 0.3    | 0.8      | 0.6        | 0.6  | 0.7      | 1.0     | 0.4    | 0.9    | 0.4   |
+| playful   | 0.4  | 0.8      | 0.9        | 0.4    | 0.9  | 0.7    | 0.7     | 0.6    | 0.5      | 0.2        | 0.3  | 0.4      | 0.4     | 1.0    | 0.5    | 0.6   |
+| relaxed   | 0.9  | 0.5      | 0.4        | 0.7    | 0.6  | 0.7    | 0.6     | 0.4    | 0.9      | 0.5        | 0.6  | 0.7      | 0.9     | 0.5    | 1.0    | 0.5   |
+| tribal    | 0.4  | 0.6      | 0.5        | 0.4    | 0.5  | 0.5    | 0.6     | 0.7    | 0.5      | 0.4        | 0.5  | 0.5      | 0.4     | 0.6    | 0.5    | 1.0   |
 
 ### User Profile Information
 User profile should have their own scores like preferred_energy, preferred_valence, preferred_acousticness, preferred_tempo, preferred_danceability, preferred_genres, and preferred_moods. These should be scores on the range of [0, 1] (for numerical features) and categorical sets for genre/mood.
