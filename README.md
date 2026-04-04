@@ -157,8 +157,8 @@ Based on the similarity scores and weighting system. They should lead to differe
 
 Here is an example of it:
 
-![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\recommendations-part-1.png)
-![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\recommendations-part-2.png)
+![Screenshot](screenshots\recommendations-part-1.png)
+![Screenshot](screenshots\recommendations-part-2.png)
 
 
 ### Potential Biases
