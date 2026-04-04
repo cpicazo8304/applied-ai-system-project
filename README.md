@@ -107,6 +107,23 @@ Since different moods and genres can be similar in the type of songs, having a d
 ### User Profile Information
 User profile should have their own scores like preferred_energy, preferred_valence, preferred_acousticness, preferred_tempo, preferred_danceability, preferred_genres, and preferred_moods. These should be scores on the range of [0, 1] (for numerical features) and categorical sets for genre/mood.
 
+Example:
+
+```python
+user_profile = {
+    'preferred_energy': 0.8,
+    'preferred_valence': 0.7,
+    'preferred_acousticness': 0.3,
+    'preferred_tempo': 120,
+    'preferred_danceability': 0.6,
+    'preferred_genres': {'pop': 0.5, 'rock': 0.3, 'electronic': 0.2},
+    'preferred_moods': {'happy': 0.4, 'energetic': 0.3, 'chill': 0.3},
+    'favorite_artist': 'Neon Echo',
+    'favorite_genre': 'pop',
+    'favorite_mood': 'happy'
+}
+```
+
 #### Mathematical profile update rule
 For numeric features, use an exponential moving average (EMA) update after each user action:
 
@@ -137,6 +154,27 @@ This is the core pipeline: profile update → scoring rule → ranking rule.
 
 ### Which songs are chosen? (ranking system)
 Based on the similarity scores and weighting system. They should lead to different scores that allows for a ranking system to be used to order songs in how related they are to the user's profile.
+
+Here is an example of it:
+
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\recommendations-part-1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\recommendations-part-2.png)
+
+
+### Potential Biases
+- Data representation bias: Song catalog may underrepresent diverse genres, artists, or cultures, favoring mainstream options.
+Feature weighting bias: Heavier emphasis on features like energy can marginalize calmer or niche songs.
+
+- Similarity matrix bias: Subjective genre/mood relatedness may undervalue emerging or hybrid styles.
+
+- User profile echo chamber: Updates reinforce existing preferences, limiting exposure to new music.
+
+- Cold start bias: New users/songs lack data, leading to suboptimal recommendations.
+
+- Interaction interpretation bias: Skips treated as dislikes may misinterpret user intent.
+
+- Demographic bias: Dataset reflecting specific tastes can exclude or unfairly serve other groups.
+
 
 ---
 
@@ -177,27 +215,48 @@ You can add more tests in `tests/test_recommender.py`.
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+Here, I tried multiple experiments such as removing a feature, changing the weight of a feature(s), or trying different edge cases of user profiles. Further discussion is in the model card.
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+### Feature Removal
+Removed danceability (weight=0.08) to see if it had any effect on the recommendations. My prediction was that it wouldn't since it had a lower weight compared to other features. However, there were some changes to "Dead Center" and "Chill Lofi", which points to the idea of danceability being a tiebreaker for some songs. So, lower weighted features are important, by acting as tiebreakers when higher weighted features' scores are tied.
 
----
+### Weight Change
+Changed weights of energy (weight=0.25) and mood (weight=0.15). This made a difference in "Conflicting Energy/Mood" since originally energy was the deciding factor with its higher weight, but with the weight change, mood became the deciding factor.
+
+### User Profiles Tested
+
+#### High Energy
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\high_energy_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\high_energy_part2.png)
+
+#### Chilled Lofi
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\chilled_lofi_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\chilled_lofi_part2.png)
+
+
+#### Deep Intense Rock
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\deep_intense_rock_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\deep_intense_rock_part2.png)
+
+#### Conflicting Mood/Energy Edge Case
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\conflicting_energy_mood_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\conflicting_energy_mood_part2.png)
+
+#### Dead Center Edge Case
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\dead_center_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\dead_center_part2.png)
+
+#### Impossible Unicorn Edge Case
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\impossible_unicorn_part1.png)
+![Screenshot](ai110-module3show-musicrecommendersimulation-starter\screenshots\impossible_unicorn_part2.png)
 
 ## Limitations and Risks
 
-Summarize some limitations of your recommender.
+- Similarity Matrix Adaptability
+- Dataset Limitation
+- Bias towards higher weighted features
 
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
-
-You will go deeper on this in your model card.
-
----
+(Further discussion in model card)
 
 ## Reflection
 
