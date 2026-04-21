@@ -34,9 +34,18 @@ Similarity formulas
       exact match → 1.0, otherwise 0.0
 """
 
+import os
 import csv
+import json
+import anthropic
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 
 # ---------------------------------------------------------------------------
@@ -424,15 +433,6 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     return round(total, 6), reasons
 
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
-    """
-    Scores a single song against user preferences.
-    Required by recommend_songs() and src/main.py
-    """
-    # TODO: Implement scoring logic using your Algorithm Recipe from Phase 2.
-    # Expected return format: (score, reasons)
-    return []
-
 def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
     """
     Score every song in the catalog and return the top-k recommendations.
@@ -456,7 +456,117 @@ def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tup
     prefs = _normalize_prefs(user_prefs)
     scored = [(song, *score_song(prefs, song)) for song in songs]
     ranked = sorted(scored, key=lambda x: x[1], reverse=True)
-    return [(song, score, "\n".join(reasons)) for song, score, reasons in ranked[:k]]
+    recommendations = [(song, score, "\n".join(reasons)) for song, score, reasons in ranked[:k]]
+
+    # Use LLM to check ranked recommendations and generate explanations
+    explanations = check_ranked_recommendations(prefs, recommendations)
+
+    # Combine explanations with recommendations for final output
+    final_recommendations = []
+    for (song, score, _), explanation in zip(recommendations, explanations):
+        final_recommendations.append((song, score, explanation))
+    return final_recommendations
+
+def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, str]]) -> str:
+    """
+    Convert the list of recommendations into a structured string format
+    suitable for LLM input (e.g. for generating explanations or summaries).
+
+    Parameters
+    ----------
+    recommendations : List of (song_dict, score, explanation) tuples.
+
+    Returns
+    -------
+    A multi-line string with one section per recommended song, including:
+        - Song title and artist
+        - Overall similarity score
+        - Per-feature contribution breakdown
+    """
+    lines = []
+    for idx, (song, score, explanation) in enumerate(recommendations, start=1):
+        lines.append(f"Recommendation #{idx}:")
+        lines.append(f"Title: {song['title']}")
+        lines.append(f"Artist: {song['artist']}")
+        lines.append(f"Genre: {song['genre']}")
+        lines.append(f"Mood: {song['mood']}")
+        lines.append(f"Similarity Score: {score:.4f}")
+        lines.append("Feature Contributions:")
+        lines.extend(f"  - {line}" for line in explanation.split("\n"))
+        lines.append("-" * 40)
+    return "\n".join(lines)
+
+
+def check_ranked_recommendations(user_prefs: Dict, recommendations: List[Tuple[Dict, float, str]]) -> List[str]:
+    """
+    Use an LLM to check if the ranked recommendations make logical sense given the user's preferences.
+    Flags any contradictions and produces a reliability score (0-1) for the overall recommendation set.
+    Also generates plain English explanations for why each song was ranked where it was. If the reliability score 
+    is below a certain threshold (e.g. 0.70), prompts the LLM to suggest adjustments to the scoring weights to 
+    better suit the user's profile.
+    """
+    recommendations_structured = structure_recommendations_for_llm(recommendations)
+    prompt1 = f""""
+    Given top 5 recommendations with the scores, and user profile, check if the rankings make 
+    logical sense given the user's preferences. Flag any contradictions and produce a reliability 
+    score (0-1) for the overall recommendation set such as a high energy song ranking highly for a 
+    low energy user because tempo dominated. Also, explain why each song was ranked where it was in plain 
+    English in a few sentences. 
+    Here are the recommendations with scores: {recommendations_structured}. 
+    Here is the user profile: {user_prefs}.
+    Respond in JSON format with no preamble: {
+        {"reliability_score": float, "contradictions": List[str], "explanations": List[str]}
+    }.
+    """
+
+    response = client.messages.create(
+        model="claude-opus-4-5",
+        max_tokens=500,
+        messages=[
+            {"role": "user", "content": prompt1}
+        ]
+    )
+
+    result = json.loads(response.content[0].text)
+    reliability_score = result.get("reliability_score", 0.0)
+    contradictions = result.get("contradictions", [])
+    explanations = result.get("explanations", [])
+
+    if reliability_score < 0.70:
+        print(f"Warning: Low reliability score ({reliability_score:.2f}) for recommendations. Contradictions found:")
+        for contradiction in contradictions:
+            print(f" - {contradiction}")
+
+        # change weights
+        prompt2 = f"""Given a not good enough reliability score {reliability_score}, can you change the 
+        given weights to better suit the current user? Here are the contradictions: {contradictions}. 
+        Here are the current weights: {WEIGHTS}. Here is the user profile: {user_prefs}. 
+        Only adjust weights that are contributing to the low reliability score, leave others unchanged. 
+        Weights must sum to 1.0. Respond only in this exact JSON format with no preamble: 
+        {
+            {"energy": float, "acousticness": float, "mood": float, "valence": float, "tempo": float, 
+        "danceability": float, "genre": float, "artist": float, "title": float}
+        }
+        """
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt2}
+            ]
+        )
+        new_weights = json.loads(response.content[0].text)
+
+        # Update global WEIGHTS with new values
+        for key in WEIGHTS.keys():
+            if key in new_weights:
+                WEIGHTS[key] = new_weights[key]
+
+        total = sum(WEIGHTS.values())
+        if abs(total - 1.0) > 0.01:
+            print(f"Warning: adjusted weights sum to {total:.3f}, not 1.0")
+
+    return explanations
 
 
 # ---------------------------------------------------------------------------
