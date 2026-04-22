@@ -39,7 +39,7 @@ import csv
 import json
 import anthropic
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 
@@ -83,7 +83,6 @@ class Song:
     acousticness: float
 
 
-@dataclass
 class UserProfile:
     """
     Represents a user's listening preferences for the OOP interface.
@@ -91,15 +90,288 @@ class UserProfile:
 
     Attributes
     ----------
-    favorite_genre : User's preferred genre label.
-    favorite_mood  : User's preferred mood label.
+    favorite_genres : List of user's preferred genre labels.
+    favorite_moods  : List of user's preferred mood labels.
     target_energy  : Desired energy level [0, 1].
     likes_acoustic : True if the user prefers acoustic songs.
     """
-    favorite_genre: str
-    favorite_mood: str
-    target_energy: float
-    likes_acoustic: bool
+
+    def __init__(self, favorite_genres: List[str], favorite_moods: List[str], favorite_artists: List[str]):
+        self.favorite_genres = favorite_genres
+        self.favorite_moods = favorite_moods
+        self.favorite_artists = favorite_artists
+        # given favorite artists, favorite genres, favorite moods, initialize a profile for the user
+        prompt = f"""
+        You are a music recommendation system. Given a user's favorite artists, genres, and moods, create a 
+        user profile with the following attributes:
+        - preferred_energy: A float in [0, 1] representing the user's preferred energy level.
+        - preferred_acousticness: A float in [0, 1] representing the user's preference for acoustic songs.
+        - preferred_valence: A float in [0, 1] representing the user's preference for musical positivity.
+        - preferred_tempo: A float representing the user's preferred tempo in BPM.
+        - preferred_danceability: A float in [0, 1] representing the user's preference for danceable songs.
+        Here is the user's favorite artists: {', '.join(favorite_artists)}.
+        Here is the user's favorite genres: {', '.join(favorite_genres)}.
+        Here is the user's favorite moods: {', '.join(favorite_moods)}.
+        Return a JSON object with the profile attributes and their values, with no additional text or 
+        explanation or preamble:
+        {
+            {
+                "preferred_energy": float,
+                "preferred_acousticness": float,
+                "preferred_valence": float,
+                "preferred_tempo": float,
+                "preferred_danceability": float
+            }
+        }
+        """
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        profile_data = json.loads(response.content[0].text)
+        self.preferred_energy = profile_data.get("preferred_energy", 0.5)
+        self.preferred_acousticness = profile_data.get("preferred_acousticness", 0.5)
+        self.preferred_valence = profile_data.get("preferred_valence", 0.5)
+        self.preferred_tempo = profile_data.get("preferred_tempo", 120.0)
+        self.preferred_danceability = profile_data.get("preferred_danceability", 0.5)
+        self.weights = {
+            "energy": 0.25,
+            "acousticness": 0.20,
+            "mood": 0.15,
+            "valence": 0.12,
+            "tempo": 0.10,
+            "danceability": 0.08,
+            "genre": 0.04,
+            "artist": 0.02,
+            "title": 0.02
+        }
+        self.num_interactions = 0
+        self.log = []
+        self.ranked_songs = []
+        self.alpha = 0.1
+        self.beta = 0.1
+
+    def add_genre_preference(self, genre: str):
+        """
+        Add a genre to the user's preferred genres list.
+        This method can be called when the user indicates they like a song of a certain genre, to increase the weight of that genre in future recommendations.
+        """
+        if genre not in self.favorite_genres:
+            self.favorite_genres.append(genre)
+
+
+    def add_mood_preference(self, mood: str):
+        """
+        Add a mood to the user's preferred moods list.
+        This method can be called when the user indicates they like a song of a certain mood, to increase the weight of that mood in future recommendations.
+        """
+        if mood not in self.favorite_moods:
+            self.favorite_moods.append(mood)
+
+    
+    def add_artist_preference(self, artist: str):
+        """
+        Add an artist to the user's preferred artists list.
+        This method can be called when the user indicates they like a song by a certain artist, to increase the weight of that artist in future recommendations.
+        """
+        if artist not in self.favorite_artists:
+            self.favorite_artists.append(artist)
+
+
+    def like(self, song: Song):
+        """
+        Update the user profile based on a liked song.
+        This method can be called after a recommendation is made and the user indicates they like the song.
+        The profile should be adjusted to increase the weights of attributes similar to the liked song.
+        """
+        self.num_interactions += 1
+        self.log.append(f"Liked song: {song.title} by {song.artist}")
+
+        # update preferred energy, acousticness, valence, tempo, danceability towards the liked song's attributes
+        old_energy = self.preferred_energy
+        old_valence = self.preferred_valence
+        old_acousticness = self.preferred_acousticness
+        old_tempo = self.preferred_tempo
+        old_danceability = self.preferred_danceability
+
+        self.preferred_energy = self.alpha * song.energy + (1 - self.alpha) * self.preferred_energy
+        self.preferred_acousticness = self.alpha * song.acousticness + (1 - self.alpha) * self.preferred_acousticness
+        self.preferred_valence = self.alpha * song.valence + (1 - self.alpha) * self.preferred_valence
+        self.preferred_tempo = self.alpha * song.tempo_bpm + (1 - self.alpha) * self.preferred_tempo
+        self.preferred_danceability = self.alpha * song.danceability + (1 - self.alpha) * self.preferred_danceability
+
+        self.log.append(f"Liked '{song.title}' by {song.artist} → energy: {old_energy:.2f} → {self.preferred_energy:.2f}, valence: {old_valence:.2f} → {self.preferred_valence:.2f}")
+
+        if abs(old_energy - self.preferred_energy) > 0.1 or abs(old_valence - self.preferred_valence) > 0.1 or abs(old_acousticness - self.preferred_acousticness) > 0.1 or abs(old_tempo - self.preferred_tempo) > 10 or abs(old_danceability - self.preferred_danceability) > 0.1:
+            self.check_ranked_recommendations(self.ranked_songs)
+            
+
+    def skip(self, song: Song):
+        """
+        Update the user profile based on a skipped song.
+        This method can be called after a recommendation is made and the user indicates they skip the song.
+        The profile should be adjusted to decrease the weights of attributes similar to the skipped song.
+        """
+        self.num_interactions += 1
+        self.log.append(f"Skipped song: {song.title} by {song.artist}")
+        # update preferred energy, acousticness, valence, tempo, danceability away from the skipped song's attributes
+        old_energy = self.preferred_energy
+        old_valence = self.preferred_valence
+        old_acousticness = self.preferred_acousticness
+        old_tempo = self.preferred_tempo
+        old_danceability = self.preferred_danceability
+        self.preferred_energy = (1 + self.beta) * self.preferred_energy - self.beta * song.energy
+        self.preferred_acousticness = (1 + self.beta) * self.preferred_acousticness - self.beta * song.acousticness
+        self.preferred_valence = (1 + self.beta) * self.preferred_valence - self.beta * song.valence
+        self.preferred_tempo = (1 + self.beta) * self.preferred_tempo - self.beta * song.tempo_bpm
+        self.preferred_danceability = (1 + self.beta) * self.preferred_danceability - self.beta * song.danceability
+
+        self.log.append(f"Skipped '{song.title}' by {song.artist} → energy: {old_energy:.2f} → {self.preferred_energy:.2f}, valence: {old_valence:.2f} → {self.preferred_valence:.2f}")
+
+        if abs(old_energy - self.preferred_energy) > 0.1 or abs(old_valence - self.preferred_valence) > 0.1 or abs(old_acousticness - self.preferred_acousticness) > 0.1 or abs(old_tempo - self.preferred_tempo) > 10 or abs(old_danceability - self.preferred_danceability) > 0.1:
+            self.check_ranked_recommendations(self.ranked_songs)
+
+    
+    def get_weights(self):
+        """
+        Return the current feature weights in the user profile.
+        This method can be used to inspect the importance of different features when scoring songs.
+        """
+        return self.weights
+
+    def update_weights(self, new_weights):
+        """
+        Update the feature weights in the user profile.
+        This method can be used to adjust the importance of different features based on user feedback or changing preferences.
+        new_weights should be a dict with the same keys as self.weights and values in [0, 1] that sum to 1.0.
+        """
+        self.weights = new_weights
+
+    def structure_profile(self):
+        """
+        Return the user profile as a structured dict that can be used for scoring songs.
+        This method converts the user profile attributes into the format expected by the scoring function.
+        """
+        return {
+            "preferred_energy": self.preferred_energy,
+            "preferred_acousticness": self.preferred_acousticness,
+            "preferred_valence": self.preferred_valence,
+            "preferred_tempo": self.preferred_tempo,
+            "preferred_danceability": self.preferred_danceability,
+            "preferred_genres": {genre: 1.0 for genre in self.favorite_genres},
+            "preferred_moods": {mood: 1.0 for mood in self.favorite_moods},
+            "favorite_artist": self.favorite_artists[0] if self.favorite_artists else "",
+            "favorite_title": "",
+        }
+
+    def update_ranked_songs(self, ranked_songs: List[Tuple[Dict, float, str]]):
+        """
+        Update the ranked songs list in the user profile.
+        This method can be called after scoring songs to store the current ranking of songs based on the user's preferences.
+        ranked_songs should be a list of (song_dict, score, explanation) tuples sorted by score descending.
+        """
+        self.ranked_songs = ranked_songs
+
+    def get_k_ranked_songs_ids_with_ranks(self, k: int):
+        """
+        Return the IDs of the top-k ranked songs based on the current user profile.
+        This method can be used to retrieve the most relevant song IDs for the user at any point in time.
+        It assumes that self.ranked_songs is a list of (song, score, explanation) tuples sorted by score descending.
+        """
+        return {
+            song['id']: i + 1 for i, (song, _, _) in enumerate(self.ranked_songs[:k])
+        }
+    
+    def get_k_ranked_songs(self, k: int):
+        """
+        Return the top-k ranked songs based on the current user profile.
+        This method can be used to retrieve the most relevant songs for the user at any point in time.
+        It assumes that self.ranked_songs is a list of (song, score, explanation) tuples sorted by score descending.
+        """
+        return {
+            song['id']: (song, score, explanation) for song, score, explanation in self.ranked_songs[:k]
+        }
+    
+    def get_k_ranked_explanations(self, k: int):
+        """
+        Return the explanations for the top-k ranked songs based on the current user profile.
+        This method can be used to understand why certain songs are recommended to the user.
+        It assumes that self.ranked_songs is a list of (song, score, explanation) tuples sorted by score descending.
+        """
+        return {
+            song['id']: explanation for song, _, explanation in self.ranked_songs[:k]
+        }
+    
+
+    def check_ranked_recommendations(self, recommendations: List[Tuple[Dict, float, str]]) -> None:
+        """
+        Use an LLM to check if the ranked recommendations make logical sense given the user's preferences.
+        Flags any contradictions and produces a reliability score (0-1) for the overall recommendation set.
+        Also generates plain English explanations for why each song was ranked where it was. If the reliability score 
+        is below a certain threshold (e.g. 0.70), prompts the LLM to suggest adjustments to the scoring weights to 
+        better suit the user's profile.
+        """
+        recommendations_structured = structure_recommendations_for_llm(recommendations)
+        user_prefs_structured = self.structure_profile()
+        prompt1 = f""""
+        Given top 5 recommendations with the scores, and user profile, check if the rankings make 
+        logical sense given the user's preferences. Flag any contradictions and produce a reliability 
+        score (0-1) for the overall recommendation set such as a high energy song ranking highly for a 
+        low energy user because tempo dominated.
+        Here are the recommendations with scores: {recommendations_structured}. 
+        Here is the user profile: {user_prefs_structured}.
+        Respond in JSON format with no preamble: {
+            {"reliability_score": float, "contradictions": List[str]}
+        }.
+        """
+
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt1}
+            ]
+        )
+
+        result = json.loads(response.content[0].text)
+        reliability_score = result.get("reliability_score", 0.0)
+        contradictions = result.get("contradictions", [])
+
+        if reliability_score < 0.70:
+            print(f"Warning: Low reliability score ({reliability_score:.2f}) for recommendations. Contradictions found:")
+            for contradiction in contradictions:
+                print(f" - {contradiction}")
+
+            # change weights
+            prompt2 = f"""Given a not good enough reliability score {reliability_score}, can you change the 
+            given weights to better suit the current user? Here are the contradictions: {contradictions}. 
+            Here are the current weights: {self.get_weights()}. Here is the user profile: {user_prefs_structured}. 
+            Only adjust weights that are contributing to the low reliability score, leave others unchanged. 
+            Weights must sum to 1.0. Respond only in this exact JSON format with no preamble: 
+            {
+                {"energy": float, "acousticness": float, "mood": float, "valence": float, "tempo": float, 
+            "danceability": float, "genre": float, "artist": float, "title": float}
+            }
+            """
+            response = client.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=500,
+                messages=[
+                    {"role": "user", "content": prompt2}
+                ]
+            )
+            new_weights = json.loads(response.content[0].text)
+
+            # Update weights with new values
+            self.update_weights(new_weights)
+
+            total = sum(self.get_weights().values())
+            if abs(total - 1.0) > 0.01:
+                print(f"Warning: adjusted weights sum to {total:.3f}, not 1.0")
+
 
 
 # ---------------------------------------------------------------------------
@@ -148,82 +420,10 @@ MOOD_SIMILARITY: Dict[str, Dict[str, float]] = {
     "tribal":      {"chill":0.4,"energetic":0.6,"exhilarated":0.5,"focused":0.4,"happy":0.5,"hopeful":0.5,"inspired":0.6,"intense":0.7,"laid-back":0.5,"melancholic":0.4,"moody":0.5,"nostalgic":0.5,"peaceful":0.4,"playful":0.6,"relaxed":0.5,"tribal":1.0},
 }
 
-# Scoring weights — must sum to 1.0
-WEIGHTS: Dict[str, float] = {
-    "energy":       0.25,
-    "acousticness": 0.20,
-    "mood":         0.15,
-    "valence":      0.12,
-    "tempo":        0.10,
-    "danceability": 0.08,
-    "genre":        0.04,
-    "artist":       0.02,
-    "title":        0.02,
-}
 
 # BPM bounds used for tempo normalization
 TEMPO_MIN = 60.0
 TEMPO_MAX = 200.0
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-def _genre_sim(g1: str, g2: str) -> float:
-    """Return fuzzy genre similarity between g1 and g2 (defaults to 0.0 if unknown)."""
-    return GENRE_SIMILARITY.get(g1, {}).get(g2, 0.0)
-
-
-def _mood_sim(m1: str, m2: str) -> float:
-    """Return fuzzy mood similarity between m1 and m2 (defaults to 0.0 if unknown)."""
-    return MOOD_SIMILARITY.get(m1, {}).get(m2, 0.0)
-
-
-def _normalize_prefs(user_prefs: Dict) -> Dict:
-    """
-    Accepts either the simplified format used by main.py:
-        {"genre": "pop", "mood": "happy", "energy": 0.8}
-    or the full internal format:
-        {"preferred_energy": 0.8, "preferred_genres": {...}, ...}
-
-    Always returns the full format so score_song() can work with either.
-    Missing numerical fields default to 0.5; missing artist/title default to "".
-    """
-    if "preferred_energy" in user_prefs:
-        return user_prefs  # already full format, pass through
-
-    genre = user_prefs.get("genre", "pop")
-    mood  = user_prefs.get("mood", "chill")
-    return {
-        "preferred_energy":       user_prefs.get("energy", 0.5),
-        "preferred_acousticness": user_prefs.get("acousticness", 0.5),
-        "preferred_valence":      user_prefs.get("valence", 0.5),
-        "preferred_tempo":        user_prefs.get("tempo", 120.0),
-        "preferred_danceability": user_prefs.get("danceability", 0.5),
-        "preferred_genres":       {genre: 1.0},
-        "preferred_moods":        {mood: 1.0},
-        "favorite_artist":        user_prefs.get("artist", ""),
-        "favorite_title":         user_prefs.get("title", ""),
-    }
-
-
-def _profile_to_prefs(user: UserProfile) -> Dict:
-    """
-    Converts a UserProfile dataclass into the full user_prefs dict format
-    expected by score_song(). Used internally by the Recommender class.
-    """
-    return {
-        "preferred_energy":       user.target_energy,
-        "preferred_acousticness": 0.8 if user.likes_acoustic else 0.2,
-        "preferred_valence":      0.7,
-        "preferred_tempo":        120.0,
-        "preferred_danceability": 0.6,
-        "preferred_genres":       {user.favorite_genre: 1.0},
-        "preferred_moods":        {user.favorite_mood: 1.0},
-        "favorite_artist":        "",
-        "favorite_title":         "",
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +457,7 @@ class Recommender:
         """
         self.songs = songs
 
+
     def recommend(self, user: UserProfile, k: int = 5) -> List[Tuple[Song, float, str]]:
         """
         Return the top-k songs best matching the user profile.
@@ -272,30 +473,233 @@ class Recommender:
         -------
         List of (Song, score, explanation) tuples sorted by score descending.
         """
-        user_prefs = _profile_to_prefs(user)
         song_dicts = [vars(s) for s in self.songs]
-        results = recommend_songs(user_prefs, song_dicts, k)
+        results = self.recommend_songs(user, song_dicts, k)
         id_to_song = {s.id: s for s in self.songs}
         return [(id_to_song[r[0]["id"]], r[1], r[2]) for r in results]
+    
 
-    def explain_recommendation(self, user: UserProfile, song: Song) -> str:
+    def score_song(self, user_prefs: UserProfile, song: Dict) -> Tuple[float, List[str]]:
         """
-        Return a human-readable breakdown of why a song was recommended.
+        Score a single song against a user profile using the weighted
+        similarity formula defined in the system spec.
 
         Parameters
         ----------
-        user : UserProfile
+        user_prefs : UserProfile
             The user's listening preferences.
-        song : Song
-            The song to explain.
+        song : Dict
+            A song dict as returned by load_songs().
+                preferred_genres  (Dict[str, float] — genre → weight),
+                preferred_moods   (Dict[str, float] — mood  → weight),
+                favorite_artist   (str),
+                favorite_title    (str)
+        song : Dict
+            A song dict as returned by load_songs().
 
         Returns
         -------
-        A multi-line string with per-feature similarity and contribution scores.
+        (score, reasons)
+            score   : float in [0, 1] — overall weighted similarity.
+            reasons : List[str] — one line per feature explaining its contribution.
         """
-        user_prefs = _profile_to_prefs(user)
-        _, reasons = score_song(user_prefs, vars(song))
-        return "\n".join(reasons)
+        reasons: List[str] = []
+
+        def num_sim(song_val: float, pref_val: float, label: str, weight: float) -> float:
+            """Compute and log a numerical feature's weighted contribution."""
+            sim = max(0.0, min(1.0, 1.0 - abs(song_val - pref_val)))
+            contrib = weight * sim
+            reasons.append(f"{label}: sim={sim:.3f}, contrib={contrib:.4f} (w={weight})")
+            return contrib
+
+        total = 0.0
+        weights = user_prefs.get_weights()
+        prefs = user_prefs.structure_profile()
+
+        # Numerical features
+        total += num_sim(song["energy"],       prefs["preferred_energy"],       "energy",       weights["energy"])
+        total += num_sim(song["acousticness"], prefs["preferred_acousticness"], "acousticness", weights["acousticness"])
+        total += num_sim(song["valence"],      prefs["preferred_valence"],      "valence",      weights["valence"])
+        total += num_sim(song["danceability"], prefs["preferred_danceability"], "danceability", weights["danceability"])
+
+        # Tempo — normalised over BPM range
+        tempo_sim = max(0.0, min(1.0, 1.0 - abs(song["tempo_bpm"] - prefs["preferred_tempo"]) / (TEMPO_MAX - TEMPO_MIN)))
+        tempo_contrib = weights["tempo"] * tempo_sim
+        reasons.append(f"tempo: sim={tempo_sim:.3f}, contrib={tempo_contrib:.4f} (w={weights['tempo']})")
+        total += tempo_contrib
+
+        # Genre — weighted average over preferred genres, normalised
+        pref_genres: Dict[str, float] = prefs.get("preferred_genres", {})
+        genre_sim = (
+            sum(w * _genre_sim(song["genre"], g) for g, w in pref_genres.items()) / sum(pref_genres.values())
+            if pref_genres else 0.0
+        )
+        genre_contrib = weights["genre"] * genre_sim
+        reasons.append(f"genre ({song['genre']}): sim={genre_sim:.3f}, contrib={genre_contrib:.4f} (w={weights['genre']})")
+        total += genre_contrib
+
+        # Mood — weighted average over preferred moods, normalised
+        pref_moods: Dict[str, float] = prefs.get("preferred_moods", {})
+        mood_sim = (
+            sum(w * _mood_sim(song["mood"], m) for m, w in pref_moods.items()) / sum(pref_moods.values())
+            if pref_moods else 0.0
+        )
+        mood_contrib = weights["mood"] * mood_sim
+        reasons.append(f"mood ({song['mood']}): sim={mood_sim:.3f}, contrib={mood_contrib:.4f} (w={weights['mood']})")
+        total += mood_contrib
+
+        # Artist — exact match
+        artist_sim = 1.0 if song["artist"] == prefs.get("favorite_artist", "") else 0.0
+        artist_contrib = weights["artist"] * artist_sim
+        reasons.append(
+            f"artist match ({song['artist']}): contrib={artist_contrib:.4f} (w={weights['artist']})"
+            if artist_sim else f"artist: no match, contrib=0.0000 (w={weights['artist']})"
+        )
+        total += artist_contrib
+
+        # Title — exact match
+        title_sim = 1.0 if song["title"] == prefs.get("favorite_title", "") else 0.0
+        title_contrib = weights["title"] * title_sim
+        reasons.append(
+            f"title match ({song['title']}): contrib={title_contrib:.4f} (w={weights['title']})"
+            if title_sim else f"title: no match, contrib=0.0000 (w={weights['title']})"
+        )
+        total += title_contrib
+
+        return round(total, 6), reasons
+    
+    
+    def recommend_songs(self, user_prefs: UserProfile, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
+        """
+        Score every song in the catalog and return the top-k recommendations.
+
+        Accepts either the simplified or full user_prefs format — normalisation
+        is handled internally via _normalize_prefs().
+
+        Parameters
+        ----------
+        user_prefs : Dict
+            User preferences in simplified or full format (see _normalize_prefs).
+        songs : List[Dict]
+            Full song catalog as returned by load_songs().
+        k : int
+            Number of top results to return (default 5).
+
+        Returns
+        -------
+        List of (song_dict, score, explanation) tuples, sorted by score descending.
+        """
+        prev_recommendation_ids = user_prefs.get_k_ranked_songs_ids_with_ranks(k)
+        scored = [(song, *self.score_song(user_prefs, song)) for song in songs]
+        ranked = sorted(scored, key=lambda x: x[1], reverse=True)
+        recommendations = [(song, score, "\n".join(reasons)) for song, score, reasons in ranked[:k]]
+
+        # go through each ranked song and only keep the ones that are new 
+        # or have changed position significantly (e.g. moved up by 3+ places) to generate explanations for
+        new_recommendations = []
+        for i, (song, score, reasons) in enumerate(recommendations):
+            if song['id'] not in prev_recommendation_ids or (song['id'] in prev_recommendation_ids and abs(prev_recommendation_ids[song['id']] - (i + 1)) >= 3):
+                # Generate explanation for this song
+                new_recommendations.append((song, score, reasons))
+
+        explanation_dict = self.get_explanations(user_prefs, new_recommendations)
+
+        # give explanations to each of the top k songs, but reuse previous 
+        # explanations for songs that are still in the top-k and haven't changed position 
+        # significantly to save on LLM calls
+        final_recommendations = []
+        prev_explanations = user_prefs.get_k_ranked_explanations(k)
+        for (song, score, _) in recommendations:
+            # If the song is new or has changed position significantly, use the new explanation from the LLM.
+            if song['id'] in explanation_dict:
+                explanation = explanation_dict.get(song['id'], "No explanation available.")
+            else:
+                explanation = prev_explanations.get(song['id'], "No explanation available.")
+            final_recommendations.append((song, score, explanation))
+
+        return final_recommendations
+
+
+    def get_explanations(self, user_prefs: UserProfile, recommendations: List[Tuple[Dict, float, str]]) -> Dict[str, str]:
+        """
+        Generate plain English explanations for why each song was ranked where it was.
+        Uses an LLM to interpret the feature contributions and produce user-friendly explanations.
+
+        Parameters
+        ----------
+        user_prefs : UserProfile
+            The user's listening preferences.
+        recommendations : List[Tuple[str, Tuple[Dict, float, str]]]
+            A list of tuples mapping song IDs to (song_dict, score, explanation) tuples.
+
+        Returns
+        -------
+        List of plain English explanations corresponding to each recommended song.
+        """
+
+        recommendations_structured = structure_recommendations_for_llm(recommendations)
+        prompt = f"""Given the following ranked recommendations with their feature contributions, generate a plain English explanation for why each song was ranked where it was. 
+        Focus on the most influential features and how they align or misalign with the user's preferences. 
+        Here are the recommendations with scores and contributions: {recommendations_structured}. 
+        Here is the user profile: {user_prefs.structure_profile()}.
+        Respond with a JSON with no preamble, one per recommended song, in the 
+        same order as the input recommendations: 
+        {{"song_id": "explanation"}} with all recommended song IDs as keys and the generated explanations as values.
+        """
+
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=1000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+
+        explanations = json.loads(response.content[0].text)
+        return explanations
+
+# ---------------------------------------------------------------------------
+# Private Helpers
+# ---------------------------------------------------------------------------
+def _genre_sim(g1: str, g2: str) -> float:
+        """Return fuzzy genre similarity between g1 and g2 (defaults to 0.0 if unknown)."""
+        return GENRE_SIMILARITY.get(g1, {}).get(g2, 0.0)
+
+
+def _mood_sim(m1: str, m2: str) -> float:
+    """Return fuzzy mood similarity between m1 and m2 (defaults to 0.0 if unknown)."""
+    return MOOD_SIMILARITY.get(m1, {}).get(m2, 0.0)
+
+
+def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, str]]) -> str:
+    """
+    Convert the list of recommendations into a structured string format
+    suitable for LLM input (e.g. for generating explanations or summaries).
+
+    Parameters
+    ----------
+    recommendations : List of (song_dict, score, explanation) tuples.
+
+    Returns
+    -------
+    A multi-line string with one section per recommended song, including:
+        - Song title and artist
+        - Overall similarity score
+        - Per-feature contribution breakdown
+    """
+    lines = []
+    for idx, (song, score, explanation) in enumerate(recommendations, start=1):
+        lines.append(f"Recommendation #{idx}:")
+        lines.append(f"ID: {song['id']}")
+        lines.append(f"Title: {song['title']}")
+        lines.append(f"Artist: {song['artist']}")
+        lines.append(f"Genre: {song['genre']}")
+        lines.append(f"Mood: {song['mood']}")
+        lines.append(f"Similarity Score: {score:.4f}")
+        lines.append("Feature Contributions:")
+        lines.extend(f"  - {line}" for line in explanation.split("\n"))
+        lines.append("-" * 40)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -345,230 +749,6 @@ def load_songs(csv_path: str) -> List[Dict]:
     return songs
 
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
-    """
-    Score a single song against a user profile using the weighted
-    similarity formula defined in the system spec.
-
-    Parameters
-    ----------
-    user_prefs : Dict
-        Full preferences dict with keys:
-            preferred_energy, preferred_acousticness, preferred_valence,
-            preferred_tempo (BPM), preferred_danceability,
-            preferred_genres  (Dict[str, float] — genre → weight),
-            preferred_moods   (Dict[str, float] — mood  → weight),
-            favorite_artist   (str),
-            favorite_title    (str)
-    song : Dict
-        A song dict as returned by load_songs().
-
-    Returns
-    -------
-    (score, reasons)
-        score   : float in [0, 1] — overall weighted similarity.
-        reasons : List[str] — one line per feature explaining its contribution.
-    """
-    reasons: List[str] = []
-
-    def num_sim(song_val: float, pref_val: float, label: str, weight: float) -> float:
-        """Compute and log a numerical feature's weighted contribution."""
-        sim = max(0.0, min(1.0, 1.0 - abs(song_val - pref_val)))
-        contrib = weight * sim
-        reasons.append(f"{label}: sim={sim:.3f}, contrib={contrib:.4f} (w={weight})")
-        return contrib
-
-    total = 0.0
-
-    # Numerical features
-    total += num_sim(song["energy"],       user_prefs["preferred_energy"],       "energy",       WEIGHTS["energy"])
-    total += num_sim(song["acousticness"], user_prefs["preferred_acousticness"], "acousticness", WEIGHTS["acousticness"])
-    total += num_sim(song["valence"],      user_prefs["preferred_valence"],      "valence",      WEIGHTS["valence"])
-    total += num_sim(song["danceability"], user_prefs["preferred_danceability"], "danceability", WEIGHTS["danceability"])
-
-    # Tempo — normalised over BPM range
-    tempo_sim = max(0.0, min(1.0, 1.0 - abs(song["tempo_bpm"] - user_prefs["preferred_tempo"]) / (TEMPO_MAX - TEMPO_MIN)))
-    tempo_contrib = WEIGHTS["tempo"] * tempo_sim
-    reasons.append(f"tempo: sim={tempo_sim:.3f}, contrib={tempo_contrib:.4f} (w={WEIGHTS['tempo']})")
-    total += tempo_contrib
-
-    # Genre — weighted average over preferred genres, normalised
-    pref_genres: Dict[str, float] = user_prefs.get("preferred_genres", {})
-    genre_sim = (
-        sum(w * _genre_sim(song["genre"], g) for g, w in pref_genres.items()) / sum(pref_genres.values())
-        if pref_genres else 0.0
-    )
-    genre_contrib = WEIGHTS["genre"] * genre_sim
-    reasons.append(f"genre ({song['genre']}): sim={genre_sim:.3f}, contrib={genre_contrib:.4f} (w={WEIGHTS['genre']})")
-    total += genre_contrib
-
-    # Mood — weighted average over preferred moods, normalised
-    pref_moods: Dict[str, float] = user_prefs.get("preferred_moods", {})
-    mood_sim = (
-        sum(w * _mood_sim(song["mood"], m) for m, w in pref_moods.items()) / sum(pref_moods.values())
-        if pref_moods else 0.0
-    )
-    mood_contrib = WEIGHTS["mood"] * mood_sim
-    reasons.append(f"mood ({song['mood']}): sim={mood_sim:.3f}, contrib={mood_contrib:.4f} (w={WEIGHTS['mood']})")
-    total += mood_contrib
-
-    # Artist — exact match
-    artist_sim = 1.0 if song["artist"] == user_prefs.get("favorite_artist", "") else 0.0
-    artist_contrib = WEIGHTS["artist"] * artist_sim
-    reasons.append(
-        f"artist match ({song['artist']}): contrib={artist_contrib:.4f} (w={WEIGHTS['artist']})"
-        if artist_sim else f"artist: no match, contrib=0.0000 (w={WEIGHTS['artist']})"
-    )
-    total += artist_contrib
-
-    # Title — exact match
-    title_sim = 1.0 if song["title"] == user_prefs.get("favorite_title", "") else 0.0
-    title_contrib = WEIGHTS["title"] * title_sim
-    reasons.append(
-        f"title match ({song['title']}): contrib={title_contrib:.4f} (w={WEIGHTS['title']})"
-        if title_sim else f"title: no match, contrib=0.0000 (w={WEIGHTS['title']})"
-    )
-    total += title_contrib
-
-    return round(total, 6), reasons
-
-
-def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
-    """
-    Score every song in the catalog and return the top-k recommendations.
-
-    Accepts either the simplified or full user_prefs format — normalisation
-    is handled internally via _normalize_prefs().
-
-    Parameters
-    ----------
-    user_prefs : Dict
-        User preferences in simplified or full format (see _normalize_prefs).
-    songs : List[Dict]
-        Full song catalog as returned by load_songs().
-    k : int
-        Number of top results to return (default 5).
-
-    Returns
-    -------
-    List of (song_dict, score, explanation) tuples, sorted by score descending.
-    """
-    prefs = _normalize_prefs(user_prefs)
-    scored = [(song, *score_song(prefs, song)) for song in songs]
-    ranked = sorted(scored, key=lambda x: x[1], reverse=True)
-    recommendations = [(song, score, "\n".join(reasons)) for song, score, reasons in ranked[:k]]
-
-    # Use LLM to check ranked recommendations and generate explanations
-    explanations = check_ranked_recommendations(prefs, recommendations)
-
-    # Combine explanations with recommendations for final output
-    final_recommendations = []
-    for (song, score, _), explanation in zip(recommendations, explanations):
-        final_recommendations.append((song, score, explanation))
-    return final_recommendations
-
-def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, str]]) -> str:
-    """
-    Convert the list of recommendations into a structured string format
-    suitable for LLM input (e.g. for generating explanations or summaries).
-
-    Parameters
-    ----------
-    recommendations : List of (song_dict, score, explanation) tuples.
-
-    Returns
-    -------
-    A multi-line string with one section per recommended song, including:
-        - Song title and artist
-        - Overall similarity score
-        - Per-feature contribution breakdown
-    """
-    lines = []
-    for idx, (song, score, explanation) in enumerate(recommendations, start=1):
-        lines.append(f"Recommendation #{idx}:")
-        lines.append(f"Title: {song['title']}")
-        lines.append(f"Artist: {song['artist']}")
-        lines.append(f"Genre: {song['genre']}")
-        lines.append(f"Mood: {song['mood']}")
-        lines.append(f"Similarity Score: {score:.4f}")
-        lines.append("Feature Contributions:")
-        lines.extend(f"  - {line}" for line in explanation.split("\n"))
-        lines.append("-" * 40)
-    return "\n".join(lines)
-
-
-def check_ranked_recommendations(user_prefs: Dict, recommendations: List[Tuple[Dict, float, str]]) -> List[str]:
-    """
-    Use an LLM to check if the ranked recommendations make logical sense given the user's preferences.
-    Flags any contradictions and produces a reliability score (0-1) for the overall recommendation set.
-    Also generates plain English explanations for why each song was ranked where it was. If the reliability score 
-    is below a certain threshold (e.g. 0.70), prompts the LLM to suggest adjustments to the scoring weights to 
-    better suit the user's profile.
-    """
-    recommendations_structured = structure_recommendations_for_llm(recommendations)
-    prompt1 = f""""
-    Given top 5 recommendations with the scores, and user profile, check if the rankings make 
-    logical sense given the user's preferences. Flag any contradictions and produce a reliability 
-    score (0-1) for the overall recommendation set such as a high energy song ranking highly for a 
-    low energy user because tempo dominated. Also, explain why each song was ranked where it was in plain 
-    English in a few sentences. 
-    Here are the recommendations with scores: {recommendations_structured}. 
-    Here is the user profile: {user_prefs}.
-    Respond in JSON format with no preamble: {
-        {"reliability_score": float, "contradictions": List[str], "explanations": List[str]}
-    }.
-    """
-
-    response = client.messages.create(
-        model="claude-opus-4-5",
-        max_tokens=500,
-        messages=[
-            {"role": "user", "content": prompt1}
-        ]
-    )
-
-    result = json.loads(response.content[0].text)
-    reliability_score = result.get("reliability_score", 0.0)
-    contradictions = result.get("contradictions", [])
-    explanations = result.get("explanations", [])
-
-    if reliability_score < 0.70:
-        print(f"Warning: Low reliability score ({reliability_score:.2f}) for recommendations. Contradictions found:")
-        for contradiction in contradictions:
-            print(f" - {contradiction}")
-
-        # change weights
-        prompt2 = f"""Given a not good enough reliability score {reliability_score}, can you change the 
-        given weights to better suit the current user? Here are the contradictions: {contradictions}. 
-        Here are the current weights: {WEIGHTS}. Here is the user profile: {user_prefs}. 
-        Only adjust weights that are contributing to the low reliability score, leave others unchanged. 
-        Weights must sum to 1.0. Respond only in this exact JSON format with no preamble: 
-        {
-            {"energy": float, "acousticness": float, "mood": float, "valence": float, "tempo": float, 
-        "danceability": float, "genre": float, "artist": float, "title": float}
-        }
-        """
-        response = client.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=500,
-            messages=[
-                {"role": "user", "content": prompt2}
-            ]
-        )
-        new_weights = json.loads(response.content[0].text)
-
-        # Update global WEIGHTS with new values
-        for key in WEIGHTS.keys():
-            if key in new_weights:
-                WEIGHTS[key] = new_weights[key]
-
-        total = sum(WEIGHTS.values())
-        if abs(total - 1.0) > 0.01:
-            print(f"Warning: adjusted weights sum to {total:.3f}, not 1.0")
-
-    return explanations
-
-
 # ---------------------------------------------------------------------------
 # Manual test runner
 # ---------------------------------------------------------------------------
@@ -579,11 +759,17 @@ if __name__ == "__main__":
     csv_path = os.path.join(os.path.dirname(__file__), "..", "data", "songs.csv")
     songs = load_songs(csv_path)
 
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+    user_prefs = UserProfile(
+        favorite_genres=["jazz", "lofi"],
+        favorite_moods=["chill", "relaxed"],
+        favorite_artists=["Artist A", "Artist B"]
+    )
+
+    recommender = Recommender([Song(**s) for s in songs])
 
     print("\nTop 5 Recommendations:")
     print("-" * 50)
-    for song, score, explanation in recommend_songs(user_prefs, songs, k=5):
+    for song, score, explanation in recommender.recommend_songs(user_prefs, songs, k=5):
         print(f"[{score:.4f}] {song['title']} by {song['artist']} ({song['genre']}, {song['mood']})")
         print(explanation)
         print("-" * 50)
