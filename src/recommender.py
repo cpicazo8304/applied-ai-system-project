@@ -12,23 +12,25 @@ Pipeline
 
 Scoring weights (must sum to 1.0)
 ----------------------------------
-    energy        0.25
-    acousticness  0.20
-    mood          0.15
-    valence       0.12
-    tempo         0.10
-    danceability  0.08
-    genre         0.04
-    artist        0.02
-    title         0.02
+    "energy":        0.22,
+    "acousticness":  0.18,
+    "valence":        0.13,
+    "tempo":          0.10,
+    "danceability":   0.08,
+    "loudness":       0.08,
+    "liveness":       0.06,
+    "speechiness":    0.05,
+    "genre":          0.06,
+    "artist":         0.02,
+    "title":          0.02
 
 Similarity formulas
 -------------------
-- Numerical (energy, acousticness, valence, danceability):
+- Numerical (energy, acousticness, valence, danceability, loudness, liveness, speechiness):
       sim = 1 - |song_val - pref_val|       (clamped to [0, 1])
 - Tempo (BPM):
       sim = 1 - |song_bpm - pref_bpm| / (MAX_BPM - MIN_BPM)
-- Genre / Mood:
+- Genre:
       fuzzy lookup via pre-defined similarity matrices (see below)
 - Artist / Title:
       exact match → 1.0, otherwise 0.0
@@ -38,12 +40,12 @@ import os
 import csv
 import json
 import anthropic
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass, field
+from typing import List, Dict, Tuple
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "env", ".env"))
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
@@ -60,58 +62,56 @@ class Song:
 
     Attributes
     ----------
-    id           : Unique integer identifier.
+    id           : Unique string identifier (Spotify track ID).
     title        : Song title.
     artist       : Artist name.
     genre        : Genre label (must exist in GENRE_SIMILARITY).
-    mood         : Mood label (must exist in MOOD_SIMILARITY).
     energy       : Perceived energy level [0, 1].
     tempo_bpm    : Tempo in beats per minute.
     valence      : Musical positivity [0, 1].
     danceability : How suitable for dancing [0, 1].
     acousticness : Degree of acoustic instrumentation [0, 1].
+    loudness     : Overall loudness in decibels.
+    liveness     : Presence of live audience [0, 1].
+    speechiness  : Presence of spoken words [0, 1].
     """
-    id: int
+    id: str
     title: str
     artist: str
     genre: str
-    mood: str
     energy: float
     tempo_bpm: float
     valence: float
     danceability: float
     acousticness: float
+    loudness: float
+    liveness: float
+    speechiness: float
 
 
 class UserProfile:
     """
     Represents a user's listening preferences for the OOP interface.
     Required by tests/test_recommender.py.
-
-    Attributes
-    ----------
-    favorite_genres : List of user's preferred genre labels.
-    favorite_moods  : List of user's preferred mood labels.
-    target_energy  : Desired energy level [0, 1].
-    likes_acoustic : True if the user prefers acoustic songs.
     """
 
-    def __init__(self, favorite_genres: List[str], favorite_moods: List[str], favorite_artists: List[str]):
+    def __init__(self, favorite_genres: List[str], favorite_artists: List[str]):
         self.favorite_genres = favorite_genres
-        self.favorite_moods = favorite_moods
         self.favorite_artists = favorite_artists
-        # given favorite artists, favorite genres, favorite moods, initialize a profile for the user
+        # given favorite artists, favorite genres, initialize a profile for the user
         prompt = f"""
-        You are a music recommendation system. Given a user's favorite artists, genres, and moods, create a 
+        You are a music recommendation system. Given a user's favorite artists and genres, create a 
         user profile with the following attributes:
         - preferred_energy: A float in [0, 1] representing the user's preferred energy level.
         - preferred_acousticness: A float in [0, 1] representing the user's preference for acoustic songs.
         - preferred_valence: A float in [0, 1] representing the user's preference for musical positivity.
         - preferred_tempo: A float representing the user's preferred tempo in BPM.
         - preferred_danceability: A float in [0, 1] representing the user's preference for danceable songs.
+        - preferred_speechiness: A float in [0, 1] representing the user's preference for spoken word content in songs.
+        - preferred_loudness: A float representing the user's preferred loudness level in decibels.
+        - preferred_liveness: A float in [0, 1] representing the user's preference for live performance feel in songs.
         Here is the user's favorite artists: {', '.join(favorite_artists)}.
         Here is the user's favorite genres: {', '.join(favorite_genres)}.
-        Here is the user's favorite moods: {', '.join(favorite_moods)}.
         Return a JSON object with the profile attributes and their values, with no additional text or 
         explanation or preamble:
         {
@@ -120,7 +120,10 @@ class UserProfile:
                 "preferred_acousticness": float,
                 "preferred_valence": float,
                 "preferred_tempo": float,
-                "preferred_danceability": float
+                "preferred_danceability": float,
+                "preferred_speechiness": float,
+                "preferred_loudness": float,
+                "preferred_liveness": float
             }
         }
         """
@@ -137,16 +140,21 @@ class UserProfile:
         self.preferred_valence = profile_data.get("preferred_valence", 0.5)
         self.preferred_tempo = profile_data.get("preferred_tempo", 120.0)
         self.preferred_danceability = profile_data.get("preferred_danceability", 0.5)
+        self.preferred_speechiness= profile_data.get("preferred_speechiness", 0.5)
+        self.preferred_loudness = profile_data.get("preferred_loudness", 30)
+        self.preferred_liveness = profile_data.get("preferred_liveness", 0.5)
         self.weights = {
-            "energy": 0.25,
-            "acousticness": 0.20,
-            "mood": 0.15,
-            "valence": 0.12,
-            "tempo": 0.10,
-            "danceability": 0.08,
-            "genre": 0.04,
-            "artist": 0.02,
-            "title": 0.02
+            "energy":        0.22,
+            "acousticness":  0.18,
+            "valence":        0.13,
+            "tempo":          0.10,
+            "danceability":   0.08,
+            "loudness":       0.08,
+            "liveness":       0.06,
+            "speechiness":    0.05,
+            "genre":          0.06,
+            "artist":         0.02,
+            "title":          0.02
         }
         self.num_interactions = 0
         self.log = []
@@ -161,15 +169,6 @@ class UserProfile:
         """
         if genre not in self.favorite_genres:
             self.favorite_genres.append(genre)
-
-
-    def add_mood_preference(self, mood: str):
-        """
-        Add a mood to the user's preferred moods list.
-        This method can be called when the user indicates they like a song of a certain mood, to increase the weight of that mood in future recommendations.
-        """
-        if mood not in self.favorite_moods:
-            self.favorite_moods.append(mood)
 
     
     def add_artist_preference(self, artist: str):
@@ -196,16 +195,30 @@ class UserProfile:
         old_acousticness = self.preferred_acousticness
         old_tempo = self.preferred_tempo
         old_danceability = self.preferred_danceability
+        old_speechiness = self.preferred_speechiness
+        old_loudness = self.preferred_loudness
+        old_liveness = self.preferred_liveness
 
         self.preferred_energy = self.alpha * song.energy + (1 - self.alpha) * self.preferred_energy
         self.preferred_acousticness = self.alpha * song.acousticness + (1 - self.alpha) * self.preferred_acousticness
         self.preferred_valence = self.alpha * song.valence + (1 - self.alpha) * self.preferred_valence
         self.preferred_tempo = self.alpha * song.tempo_bpm + (1 - self.alpha) * self.preferred_tempo
         self.preferred_danceability = self.alpha * song.danceability + (1 - self.alpha) * self.preferred_danceability
+        self.preferred_speechiness = self.alpha * song.speechiness + (1 - self.alpha) * self.preferred_speechiness
+        self.preferred_loudness = self.alpha * song.loudness + (1 - self.alpha) * self.preferred_loudness
+        self.preferred_liveness = self.alpha * song.liveness + (1 - self.alpha) * self.preferred_liveness
 
-        self.log.append(f"Liked '{song.title}' by {song.artist} → energy: {old_energy:.2f} → {self.preferred_energy:.2f}, valence: {old_valence:.2f} → {self.preferred_valence:.2f}")
+        self.log.append(f"Liked '{song.title}' by {song.artist} → "
+            f"energy: {old_energy:.2f} → {self.preferred_energy:.2f}, "
+            f"acousticness: {old_acousticness:.2f} → {self.preferred_acousticness:.2f}, "
+            f"valence: {old_valence:.2f} → {self.preferred_valence:.2f}, "
+            f"tempo: {old_tempo:.2f} → {self.preferred_tempo:.2f}, "
+            f"danceability: {old_danceability:.2f} → {self.preferred_danceability:.2f}, "
+            f"loudness: {old_loudness:.2f} → {self.preferred_loudness:.2f}, "
+            f"liveness: {old_liveness:.2f} → {self.preferred_liveness:.2f}, "
+            f"speechiness: {old_speechiness:.2f} → {self.preferred_speechiness:.2f}")
 
-        if abs(old_energy - self.preferred_energy) > 0.1 or abs(old_valence - self.preferred_valence) > 0.1 or abs(old_acousticness - self.preferred_acousticness) > 0.1 or abs(old_tempo - self.preferred_tempo) > 10 or abs(old_danceability - self.preferred_danceability) > 0.1:
+        if abs(old_speechiness - self.preferred_speechiness) > 0.1 or abs(old_loudness - self.preferred_loudness) > 0.1 or abs(old_liveness - self.preferred_liveness) > 0.1 or abs(old_energy - self.preferred_energy) > 0.1 or abs(old_valence - self.preferred_valence) > 0.1 or abs(old_acousticness - self.preferred_acousticness) > 0.1 or abs(old_tempo - self.preferred_tempo) > 10 or abs(old_danceability - self.preferred_danceability) > 0.1:
             self.check_ranked_recommendations(self.ranked_songs)
             
 
@@ -217,21 +230,43 @@ class UserProfile:
         """
         self.num_interactions += 1
         self.log.append(f"Skipped song: {song.title} by {song.artist}")
-        # update preferred energy, acousticness, valence, tempo, danceability away from the skipped song's attributes
+
         old_energy = self.preferred_energy
         old_valence = self.preferred_valence
         old_acousticness = self.preferred_acousticness
         old_tempo = self.preferred_tempo
         old_danceability = self.preferred_danceability
+        old_speechiness = self.preferred_speechiness
+        old_loudness = self.preferred_loudness
+        old_liveness = self.preferred_liveness
+
         self.preferred_energy = (1 + self.beta) * self.preferred_energy - self.beta * song.energy
         self.preferred_acousticness = (1 + self.beta) * self.preferred_acousticness - self.beta * song.acousticness
         self.preferred_valence = (1 + self.beta) * self.preferred_valence - self.beta * song.valence
         self.preferred_tempo = (1 + self.beta) * self.preferred_tempo - self.beta * song.tempo_bpm
         self.preferred_danceability = (1 + self.beta) * self.preferred_danceability - self.beta * song.danceability
+        self.preferred_speechiness = (1 + self.beta) * self.preferred_speechiness - self.beta * song.speechiness
+        self.preferred_loudness = (1 + self.beta) * self.preferred_loudness - self.beta * song.loudness
+        self.preferred_liveness = (1 + self.beta) * self.preferred_liveness - self.beta * song.liveness
 
-        self.log.append(f"Skipped '{song.title}' by {song.artist} → energy: {old_energy:.2f} → {self.preferred_energy:.2f}, valence: {old_valence:.2f} → {self.preferred_valence:.2f}")
+        self.log.append(f"Skipped '{song.title}' by {song.artist} → "
+                        f"energy: {old_energy:.2f} → {self.preferred_energy:.2f}, "
+                        f"acousticness: {old_acousticness:.2f} → {self.preferred_acousticness:.2f}, "
+                        f"valence: {old_valence:.2f} → {self.preferred_valence:.2f}, "
+                        f"tempo: {old_tempo:.2f} → {self.preferred_tempo:.2f}, "
+                        f"danceability: {old_danceability:.2f} → {self.preferred_danceability:.2f}, "
+                        f"loudness: {old_loudness:.2f} → {self.preferred_loudness:.2f}, "
+                        f"liveness: {old_liveness:.2f} → {self.preferred_liveness:.2f}, "
+                        f"speechiness: {old_speechiness:.2f} → {self.preferred_speechiness:.2f}")
 
-        if abs(old_energy - self.preferred_energy) > 0.1 or abs(old_valence - self.preferred_valence) > 0.1 or abs(old_acousticness - self.preferred_acousticness) > 0.1 or abs(old_tempo - self.preferred_tempo) > 10 or abs(old_danceability - self.preferred_danceability) > 0.1:
+        if (abs(old_energy - self.preferred_energy) > 0.1 or
+            abs(old_valence - self.preferred_valence) > 0.1 or
+            abs(old_acousticness - self.preferred_acousticness) > 0.1 or
+            abs(old_tempo - self.preferred_tempo) > 10 or
+            abs(old_danceability - self.preferred_danceability) > 0.1 or
+            abs(old_speechiness - self.preferred_speechiness) > 0.1 or
+            abs(old_loudness - self.preferred_loudness) > 0.1 or
+            abs(old_liveness - self.preferred_liveness) > 0.1):
             self.check_ranked_recommendations(self.ranked_songs)
 
     
@@ -261,8 +296,10 @@ class UserProfile:
             "preferred_valence": self.preferred_valence,
             "preferred_tempo": self.preferred_tempo,
             "preferred_danceability": self.preferred_danceability,
+            "preferred_speechiness": self.preferred_speechiness,
+            "preferred_loudness": self.preferred_loudness,
+            "preferred_liveness": self.preferred_liveness,
             "preferred_genres": {genre: 1.0 for genre in self.favorite_genres},
-            "preferred_moods": {mood: 1.0 for mood in self.favorite_moods},
             "favorite_artist": self.favorite_artists[0] if self.favorite_artists else "",
             "favorite_title": "",
         }
@@ -353,7 +390,7 @@ class UserProfile:
             Weights must sum to 1.0. Respond only in this exact JSON format with no preamble: 
             {
                 {"energy": float, "acousticness": float, "mood": float, "valence": float, "tempo": float, 
-            "danceability": float, "genre": float, "artist": float, "title": float}
+            "danceability": float, "loudness": float, "liveness": float, "speechiness": float, "genre": float, "artist": float, "title": float}
             }
             """
             response = client.messages.create(
@@ -399,26 +436,26 @@ GENRE_SIMILARITY: Dict[str, Dict[str, float]] = {
     "world":      {"ambient":0.4,"classical":0.5,"country":0.4,"edm":0.3,"electronic":0.4,"folk":0.5,"gospel":0.7,"hip-hop":0.5,"indie pop":0.4,"jazz":0.6,"lofi":0.4,"metal":0.3,"pop":0.4,"reggae":0.8,"rock":0.4,"synthwave":0.3,"world":1.0},
 }
 
-# 16x16 fuzzy similarity matrix for moods.
-# Values in [0, 1] — 1.0 means identical, 0.0 means completely unrelated.
-MOOD_SIMILARITY: Dict[str, Dict[str, float]] = {
-    "chill":       {"chill":1.0,"energetic":0.4,"exhilarated":0.3,"focused":0.8,"happy":0.5,"hopeful":0.6,"inspired":0.5,"intense":0.3,"laid-back":0.9,"melancholic":0.6,"moody":0.7,"nostalgic":0.7,"peaceful":0.9,"playful":0.4,"relaxed":0.9,"tribal":0.4},
-    "energetic":   {"chill":0.4,"energetic":1.0,"exhilarated":0.8,"focused":0.6,"happy":0.7,"hopeful":0.7,"inspired":0.6,"intense":0.9,"laid-back":0.5,"melancholic":0.3,"moody":0.4,"nostalgic":0.4,"peaceful":0.4,"playful":0.8,"relaxed":0.5,"tribal":0.6},
-    "exhilarated": {"chill":0.3,"energetic":0.8,"exhilarated":1.0,"focused":0.5,"happy":0.8,"hopeful":0.7,"inspired":0.7,"intense":0.9,"laid-back":0.4,"melancholic":0.2,"moody":0.3,"nostalgic":0.3,"peaceful":0.3,"playful":0.9,"relaxed":0.4,"tribal":0.5},
-    "focused":     {"chill":0.8,"energetic":0.6,"exhilarated":0.5,"focused":1.0,"happy":0.4,"hopeful":0.6,"inspired":0.6,"intense":0.5,"laid-back":0.7,"melancholic":0.5,"moody":0.6,"nostalgic":0.6,"peaceful":0.7,"playful":0.4,"relaxed":0.7,"tribal":0.4},
-    "happy":       {"chill":0.5,"energetic":0.7,"exhilarated":0.8,"focused":0.4,"happy":1.0,"hopeful":0.8,"inspired":0.8,"intense":0.6,"laid-back":0.6,"melancholic":0.3,"moody":0.4,"nostalgic":0.5,"peaceful":0.5,"playful":0.9,"relaxed":0.6,"tribal":0.5},
-    "hopeful":     {"chill":0.6,"energetic":0.7,"exhilarated":0.7,"focused":0.6,"happy":0.8,"hopeful":1.0,"inspired":0.9,"intense":0.5,"laid-back":0.6,"melancholic":0.4,"moody":0.5,"nostalgic":0.7,"peaceful":0.6,"playful":0.7,"relaxed":0.7,"tribal":0.5},
-    "inspired":    {"chill":0.5,"energetic":0.6,"exhilarated":0.7,"focused":0.6,"happy":0.8,"hopeful":0.9,"inspired":1.0,"intense":0.5,"laid-back":0.5,"melancholic":0.4,"moody":0.5,"nostalgic":0.8,"peaceful":0.5,"playful":0.7,"relaxed":0.6,"tribal":0.6},
-    "intense":     {"chill":0.3,"energetic":0.9,"exhilarated":0.9,"focused":0.5,"happy":0.6,"hopeful":0.5,"inspired":0.5,"intense":1.0,"laid-back":0.4,"melancholic":0.7,"moody":0.8,"nostalgic":0.4,"peaceful":0.3,"playful":0.6,"relaxed":0.4,"tribal":0.7},
-    "laid-back":   {"chill":0.9,"energetic":0.5,"exhilarated":0.4,"focused":0.7,"happy":0.6,"hopeful":0.6,"inspired":0.5,"intense":0.4,"laid-back":1.0,"melancholic":0.5,"moody":0.6,"nostalgic":0.6,"peaceful":0.8,"playful":0.5,"relaxed":0.9,"tribal":0.5},
-    "melancholic": {"chill":0.6,"energetic":0.3,"exhilarated":0.2,"focused":0.5,"happy":0.3,"hopeful":0.4,"inspired":0.4,"intense":0.7,"laid-back":0.5,"melancholic":1.0,"moody":0.9,"nostalgic":0.7,"peaceful":0.6,"playful":0.2,"relaxed":0.5,"tribal":0.4},
-    "moody":       {"chill":0.7,"energetic":0.4,"exhilarated":0.3,"focused":0.6,"happy":0.4,"hopeful":0.5,"inspired":0.5,"intense":0.8,"laid-back":0.6,"melancholic":0.9,"moody":1.0,"nostalgic":0.6,"peaceful":0.6,"playful":0.3,"relaxed":0.6,"tribal":0.5},
-    "nostalgic":   {"chill":0.7,"energetic":0.4,"exhilarated":0.3,"focused":0.6,"happy":0.5,"hopeful":0.7,"inspired":0.8,"intense":0.4,"laid-back":0.6,"melancholic":0.7,"moody":0.6,"nostalgic":1.0,"peaceful":0.7,"playful":0.4,"relaxed":0.7,"tribal":0.5},
-    "peaceful":    {"chill":0.9,"energetic":0.4,"exhilarated":0.3,"focused":0.7,"happy":0.5,"hopeful":0.6,"inspired":0.5,"intense":0.3,"laid-back":0.8,"melancholic":0.6,"moody":0.6,"nostalgic":0.7,"peaceful":1.0,"playful":0.4,"relaxed":0.9,"tribal":0.4},
-    "playful":     {"chill":0.4,"energetic":0.8,"exhilarated":0.9,"focused":0.4,"happy":0.9,"hopeful":0.7,"inspired":0.7,"intense":0.6,"laid-back":0.5,"melancholic":0.2,"moody":0.3,"nostalgic":0.4,"peaceful":0.4,"playful":1.0,"relaxed":0.5,"tribal":0.6},
-    "relaxed":     {"chill":0.9,"energetic":0.5,"exhilarated":0.4,"focused":0.7,"happy":0.6,"hopeful":0.7,"inspired":0.6,"intense":0.4,"laid-back":0.9,"melancholic":0.5,"moody":0.6,"nostalgic":0.7,"peaceful":0.9,"playful":0.5,"relaxed":1.0,"tribal":0.5},
-    "tribal":      {"chill":0.4,"energetic":0.6,"exhilarated":0.5,"focused":0.4,"happy":0.5,"hopeful":0.5,"inspired":0.6,"intense":0.7,"laid-back":0.5,"melancholic":0.4,"moody":0.5,"nostalgic":0.5,"peaceful":0.4,"playful":0.6,"relaxed":0.5,"tribal":1.0},
-}
+# # 16x16 fuzzy similarity matrix for moods.
+# # Values in [0, 1] — 1.0 means identical, 0.0 means completely unrelated.
+# MOOD_SIMILARITY: Dict[str, Dict[str, float]] = {
+#     "chill":       {"chill":1.0,"energetic":0.4,"exhilarated":0.3,"focused":0.8,"happy":0.5,"hopeful":0.6,"inspired":0.5,"intense":0.3,"laid-back":0.9,"melancholic":0.6,"moody":0.7,"nostalgic":0.7,"peaceful":0.9,"playful":0.4,"relaxed":0.9,"tribal":0.4},
+#     "energetic":   {"chill":0.4,"energetic":1.0,"exhilarated":0.8,"focused":0.6,"happy":0.7,"hopeful":0.7,"inspired":0.6,"intense":0.9,"laid-back":0.5,"melancholic":0.3,"moody":0.4,"nostalgic":0.4,"peaceful":0.4,"playful":0.8,"relaxed":0.5,"tribal":0.6},
+#     "exhilarated": {"chill":0.3,"energetic":0.8,"exhilarated":1.0,"focused":0.5,"happy":0.8,"hopeful":0.7,"inspired":0.7,"intense":0.9,"laid-back":0.4,"melancholic":0.2,"moody":0.3,"nostalgic":0.3,"peaceful":0.3,"playful":0.9,"relaxed":0.4,"tribal":0.5},
+#     "focused":     {"chill":0.8,"energetic":0.6,"exhilarated":0.5,"focused":1.0,"happy":0.4,"hopeful":0.6,"inspired":0.6,"intense":0.5,"laid-back":0.7,"melancholic":0.5,"moody":0.6,"nostalgic":0.6,"peaceful":0.7,"playful":0.4,"relaxed":0.7,"tribal":0.4},
+#     "happy":       {"chill":0.5,"energetic":0.7,"exhilarated":0.8,"focused":0.4,"happy":1.0,"hopeful":0.8,"inspired":0.8,"intense":0.6,"laid-back":0.6,"melancholic":0.3,"moody":0.4,"nostalgic":0.5,"peaceful":0.5,"playful":0.9,"relaxed":0.6,"tribal":0.5},
+#     "hopeful":     {"chill":0.6,"energetic":0.7,"exhilarated":0.7,"focused":0.6,"happy":0.8,"hopeful":1.0,"inspired":0.9,"intense":0.5,"laid-back":0.6,"melancholic":0.4,"moody":0.5,"nostalgic":0.7,"peaceful":0.6,"playful":0.7,"relaxed":0.7,"tribal":0.5},
+#     "inspired":    {"chill":0.5,"energetic":0.6,"exhilarated":0.7,"focused":0.6,"happy":0.8,"hopeful":0.9,"inspired":1.0,"intense":0.5,"laid-back":0.5,"melancholic":0.4,"moody":0.5,"nostalgic":0.8,"peaceful":0.5,"playful":0.7,"relaxed":0.6,"tribal":0.6},
+#     "intense":     {"chill":0.3,"energetic":0.9,"exhilarated":0.9,"focused":0.5,"happy":0.6,"hopeful":0.5,"inspired":0.5,"intense":1.0,"laid-back":0.4,"melancholic":0.7,"moody":0.8,"nostalgic":0.4,"peaceful":0.3,"playful":0.6,"relaxed":0.4,"tribal":0.7},
+#     "laid-back":   {"chill":0.9,"energetic":0.5,"exhilarated":0.4,"focused":0.7,"happy":0.6,"hopeful":0.6,"inspired":0.5,"intense":0.4,"laid-back":1.0,"melancholic":0.5,"moody":0.6,"nostalgic":0.6,"peaceful":0.8,"playful":0.5,"relaxed":0.9,"tribal":0.5},
+#     "melancholic": {"chill":0.6,"energetic":0.3,"exhilarated":0.2,"focused":0.5,"happy":0.3,"hopeful":0.4,"inspired":0.4,"intense":0.7,"laid-back":0.5,"melancholic":1.0,"moody":0.9,"nostalgic":0.7,"peaceful":0.6,"playful":0.2,"relaxed":0.5,"tribal":0.4},
+#     "moody":       {"chill":0.7,"energetic":0.4,"exhilarated":0.3,"focused":0.6,"happy":0.4,"hopeful":0.5,"inspired":0.5,"intense":0.8,"laid-back":0.6,"melancholic":0.9,"moody":1.0,"nostalgic":0.6,"peaceful":0.6,"playful":0.3,"relaxed":0.6,"tribal":0.5},
+#     "nostalgic":   {"chill":0.7,"energetic":0.4,"exhilarated":0.3,"focused":0.6,"happy":0.5,"hopeful":0.7,"inspired":0.8,"intense":0.4,"laid-back":0.6,"melancholic":0.7,"moody":0.6,"nostalgic":1.0,"peaceful":0.7,"playful":0.4,"relaxed":0.7,"tribal":0.5},
+#     "peaceful":    {"chill":0.9,"energetic":0.4,"exhilarated":0.3,"focused":0.7,"happy":0.5,"hopeful":0.6,"inspired":0.5,"intense":0.3,"laid-back":0.8,"melancholic":0.6,"moody":0.6,"nostalgic":0.7,"peaceful":1.0,"playful":0.4,"relaxed":0.9,"tribal":0.4},
+#     "playful":     {"chill":0.4,"energetic":0.8,"exhilarated":0.9,"focused":0.4,"happy":0.9,"hopeful":0.7,"inspired":0.7,"intense":0.6,"laid-back":0.5,"melancholic":0.2,"moody":0.3,"nostalgic":0.4,"peaceful":0.4,"playful":1.0,"relaxed":0.5,"tribal":0.6},
+#     "relaxed":     {"chill":0.9,"energetic":0.5,"exhilarated":0.4,"focused":0.7,"happy":0.6,"hopeful":0.7,"inspired":0.6,"intense":0.4,"laid-back":0.9,"melancholic":0.5,"moody":0.6,"nostalgic":0.7,"peaceful":0.9,"playful":0.5,"relaxed":1.0,"tribal":0.5},
+#     "tribal":      {"chill":0.4,"energetic":0.6,"exhilarated":0.5,"focused":0.4,"happy":0.5,"hopeful":0.5,"inspired":0.6,"intense":0.7,"laid-back":0.5,"melancholic":0.4,"moody":0.5,"nostalgic":0.5,"peaceful":0.4,"playful":0.6,"relaxed":0.5,"tribal":1.0},
+# }
 
 
 # BPM bounds used for tempo normalization
@@ -491,7 +528,6 @@ class Recommender:
         song : Dict
             A song dict as returned by load_songs().
                 preferred_genres  (Dict[str, float] — genre → weight),
-                preferred_moods   (Dict[str, float] — mood  → weight),
                 favorite_artist   (str),
                 favorite_title    (str)
         song : Dict
@@ -521,6 +557,16 @@ class Recommender:
         total += num_sim(song["acousticness"], prefs["preferred_acousticness"], "acousticness", weights["acousticness"])
         total += num_sim(song["valence"],      prefs["preferred_valence"],      "valence",      weights["valence"])
         total += num_sim(song["danceability"], prefs["preferred_danceability"], "danceability", weights["danceability"])
+        total += num_sim(song["liveness"],     prefs["preferred_liveness"],     "liveness",     weights["liveness"])
+        total += num_sim(song["speechiness"],  prefs["preferred_speechiness"],  "speechiness",  weights["speechiness"])
+
+        LOUDNESS_MIN = -60.0
+        LOUDNESS_MAX = 0.0
+
+        loudness_sim = max(0.0, min(1.0, 1.0 - abs(song["loudness"] - prefs["preferred_loudness"]) / (LOUDNESS_MAX - LOUDNESS_MIN)))
+        loudness_contrib = weights["loudness"] * loudness_sim
+        reasons.append(f"loudness: sim={loudness_sim:.3f}, contrib={loudness_contrib:.4f} (w={weights['loudness']})")
+        total += loudness_contrib
 
         # Tempo — normalised over BPM range
         tempo_sim = max(0.0, min(1.0, 1.0 - abs(song["tempo_bpm"] - prefs["preferred_tempo"]) / (TEMPO_MAX - TEMPO_MIN)))
@@ -537,16 +583,6 @@ class Recommender:
         genre_contrib = weights["genre"] * genre_sim
         reasons.append(f"genre ({song['genre']}): sim={genre_sim:.3f}, contrib={genre_contrib:.4f} (w={weights['genre']})")
         total += genre_contrib
-
-        # Mood — weighted average over preferred moods, normalised
-        pref_moods: Dict[str, float] = prefs.get("preferred_moods", {})
-        mood_sim = (
-            sum(w * _mood_sim(song["mood"], m) for m, w in pref_moods.items()) / sum(pref_moods.values())
-            if pref_moods else 0.0
-        )
-        mood_contrib = weights["mood"] * mood_sim
-        reasons.append(f"mood ({song['mood']}): sim={mood_sim:.3f}, contrib={mood_contrib:.4f} (w={weights['mood']})")
-        total += mood_contrib
 
         # Artist — exact match
         artist_sim = 1.0 if song["artist"] == prefs.get("favorite_artist", "") else 0.0
@@ -568,6 +604,9 @@ class Recommender:
 
         return round(total, 6), reasons
     
+    def get_candidates(self, user_prefs: UserProfile, songs: List[Dict]):
+        
+        return
     
     def recommend_songs(self, user_prefs: UserProfile, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
         """
@@ -666,9 +705,9 @@ def _genre_sim(g1: str, g2: str) -> float:
         return GENRE_SIMILARITY.get(g1, {}).get(g2, 0.0)
 
 
-def _mood_sim(m1: str, m2: str) -> float:
-    """Return fuzzy mood similarity between m1 and m2 (defaults to 0.0 if unknown)."""
-    return MOOD_SIMILARITY.get(m1, {}).get(m2, 0.0)
+# def _mood_sim(m1: str, m2: str) -> float:
+#     """Return fuzzy mood similarity between m1 and m2 (defaults to 0.0 if unknown)."""
+#     return MOOD_SIMILARITY.get(m1, {}).get(m2, 0.0)
 
 
 def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, str]]) -> str:
@@ -694,7 +733,6 @@ def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, s
         lines.append(f"Title: {song['title']}")
         lines.append(f"Artist: {song['artist']}")
         lines.append(f"Genre: {song['genre']}")
-        lines.append(f"Mood: {song['mood']}")
         lines.append(f"Similarity Score: {score:.4f}")
         lines.append("Feature Contributions:")
         lines.extend(f"  - {line}" for line in explanation.split("\n"))
@@ -711,9 +749,8 @@ def load_songs(csv_path: str) -> List[Dict]:
     Parse a CSV file of songs and return a list of typed dicts.
 
     Each row is converted to a dict with proper Python types:
-        - id           → int
-        - energy, valence, danceability, acousticness, tempo_bpm → float
-        - title, artist, genre, mood → str (whitespace stripped)
+        - energy, valence, danceability, acousticness, tempo, loudness, liveness, speechiness → float
+        - title, artist, genre, id  → str (whitespace stripped)
 
     Parameters
     ----------
@@ -728,8 +765,7 @@ def load_songs(csv_path: str) -> List[Dict]:
     ------------
     Prints the number of loaded songs to stdout.
     """
-    FLOAT_FIELDS = {"energy", "valence", "danceability", "acousticness", "tempo_bpm"}
-    INT_FIELDS   = {"id"}
+    FLOAT_FIELDS = {"energy", "valence", "danceability", "acousticness", "loudness", "liveness", "speechiness", "tempo"}
 
     songs = []
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -737,9 +773,7 @@ def load_songs(csv_path: str) -> List[Dict]:
         for row in reader:
             song: Dict = {}
             for key, val in row.items():
-                if key in INT_FIELDS:
-                    song[key] = int(val)
-                elif key in FLOAT_FIELDS:
+                if key in FLOAT_FIELDS:
                     song[key] = float(val)
                 else:
                     song[key] = val.strip()
@@ -761,7 +795,6 @@ if __name__ == "__main__":
 
     user_prefs = UserProfile(
         favorite_genres=["jazz", "lofi"],
-        favorite_moods=["chill", "relaxed"],
         favorite_artists=["Artist A", "Artist B"]
     )
 
@@ -770,6 +803,6 @@ if __name__ == "__main__":
     print("\nTop 5 Recommendations:")
     print("-" * 50)
     for song, score, explanation in recommender.recommend_songs(user_prefs, songs, k=5):
-        print(f"[{score:.4f}] {song['title']} by {song['artist']} ({song['genre']}, {song['mood']})")
+        print(f"[{score:.4f}] {song['title']} by {song['artist']} ({song['genre']})")
         print(explanation)
         print("-" * 50)
