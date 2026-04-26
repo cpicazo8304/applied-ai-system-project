@@ -4,11 +4,13 @@ tests/test_recommender.py
 Tests for the Music Recommender System.
 
 Covers:
-1. UserProfile initialization (LLM call)
-2. check_ranked_recommendations (LLM call)
-3. get_explanations (LLM call)
-4. score_song correctness
-5. recommend_songs pipeline
+1. UserProfile initialization (LLM call) — verifies the LLM is called once and profile values are parsed correctly with proper defaults
+2. check_ranked_recommendations (LLM call) — verifies reliability threshold logic, weight adjustment trigger, and adjusted weights sum to 1.0
+3. get_explanations (LLM call) — verifies explanations return as a dict and only one LLM call is made per batch
+4. score_song correctness — verifies perfect match scores high, opposite scores low, all features have reasons, and score is always in [0, 1]
+5. recommend_songs pipeline — verifies exactly k results are returned and sorted by score descending
+6. EMA updates (like and skip) — verifies preferences nudge toward liked songs, push away from skipped songs, alpha/beta math is correct, interaction count increments, and log is updated
+7. Weight validation — verifies default weights sum to 1.0, update replaces weights correctly, and updated weights still sum to 1.0
 """
 
 import pytest
