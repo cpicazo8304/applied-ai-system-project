@@ -97,14 +97,17 @@ class UserProfile:
                 {"role": "user", "content": prompt}
             ]
         )
-        profile_data = json.loads(response.content[0].text)
+        raw = response.content[0].text
+        clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        profile_data = json.loads(clean)
+        
         self.preferred_energy = profile_data.get("preferred_energy", 0.5)
         self.preferred_acousticness = profile_data.get("preferred_acousticness", 0.5)
         self.preferred_valence = profile_data.get("preferred_valence", 0.5)
         self.preferred_tempo = profile_data.get("preferred_tempo", 120.0)
         self.preferred_danceability = profile_data.get("preferred_danceability", 0.5)
         self.preferred_speechiness= profile_data.get("preferred_speechiness", 0.5)
-        self.preferred_loudness = profile_data.get("preferred_loudness", 30)
+        self.preferred_loudness = profile_data.get("preferred_loudness", -10.0)
         self.preferred_liveness = profile_data.get("preferred_liveness", 0.5)
         self.weights = {
             "energy":        0.22,
@@ -337,7 +340,9 @@ class UserProfile:
             ]
         )
 
-        result = json.loads(response.content[0].text)
+        raw = response.content[0].text
+        clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        result = json.loads(clean)
         reliability_score = result.get("reliability_score", 0.0)
         contradictions = result.get("contradictions", [])
 
@@ -364,7 +369,9 @@ class UserProfile:
                     {"role": "user", "content": prompt2}
                 ]
             )
-            new_weights = json.loads(response.content[0].text)
+            raw = response.content[0].text
+            clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            new_weights = json.loads(clean)
 
             # Update weights with new values
             self.update_weights(new_weights)
@@ -427,8 +434,8 @@ class Recommender:
             Full song catalog as dictionaries.
         """
         # load the model
-        self.gmm = joblib.load("./models/gmm_model.joblib")
-        self.scaler = joblib.load("./models/scaler.joblib")
+        self.gmm = joblib.load("models/gmm_model.joblib")
+        self.scaler = joblib.load("models/scaler.joblib")
         self.songs = songs
         self.songs_proba = np.array([[song[f"cluster_{i}"] for i in range(self.gmm.n_components)] for song in songs])  # shape (n_songs, n_components)
 
@@ -618,9 +625,9 @@ class Recommender:
 
         recommendations_structured = structure_recommendations_for_llm(recommendations)
         prompt = f"""Given the following ranked recommendations with their feature contributions, generate a plain English explanation for why each song was ranked where it was. 
-        Focus on the most influential features and how they align or misalign with the user's preferences. 
+        Focus on the most influential features and how they align or misalign with the user's preferences. Make the explanations user-friendly and concise, avoiding technical jargon.
         Here are the recommendations with scores and contributions: {recommendations_structured}. 
-        Here is the user profile: {user_prefs.structure_profile()}.
+        Here is the user profile: {user_prefs.structure_profile()}. 
         Respond with a JSON with no preamble, one per recommended song, in the 
         same order as the input recommendations: 
         {{"song_id": "explanation"}} with all recommended song IDs as keys and the generated explanations as values.
@@ -634,7 +641,9 @@ class Recommender:
             ]
         )
 
-        explanations = json.loads(response.content[0].text)
+        raw = response.content[0].text
+        clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        explanations = json.loads(clean)
         return explanations
 
 # ---------------------------------------------------------------------------
@@ -657,7 +666,9 @@ def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, s
     Returns
     -------
     A multi-line string with one section per recommended song, including:
-        - Song title and artist
+        - Song title, artist, genre
+        - Audio features
+        - Top cluster assignments
         - Overall similarity score
         - Per-feature contribution breakdown
     """
@@ -668,6 +679,27 @@ def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, s
         lines.append(f"Title: {song['title']}")
         lines.append(f"Artist: {song['artist']}")
         lines.append(f"Genre: {song['genre']}")
+
+        # Audio features
+        lines.append("Audio Features:")
+        lines.append(f"  - Energy: {song.get('energy', 'N/A'):.3f}")
+        lines.append(f"  - Acousticness: {song.get('acousticness', 'N/A'):.3f}")
+        lines.append(f"  - Valence: {song.get('valence', 'N/A'):.3f}")
+        lines.append(f"  - Tempo: {song.get('tempo', 'N/A'):.1f} BPM")
+        lines.append(f"  - Danceability: {song.get('danceability', 'N/A'):.3f}")
+        lines.append(f"  - Loudness: {song.get('loudness', 'N/A'):.1f} dB")
+        lines.append(f"  - Liveness: {song.get('liveness', 'N/A'):.3f}")
+        lines.append(f"  - Speechiness: {song.get('speechiness', 'N/A'):.3f}")
+
+        # Top 3 cluster assignments by probability
+        cluster_keys = [k for k in song.keys() if k.startswith("cluster_")]
+        if cluster_keys:
+            cluster_probs = {k: song[k] for k in cluster_keys}
+            top_clusters = sorted(cluster_probs.items(), key=lambda x: x[1], reverse=True)[:3]
+            lines.append("Top Cluster Assignments:")
+            for cluster, prob in top_clusters:
+                lines.append(f"  - {cluster}: {prob:.3f}")
+
         lines.append(f"Similarity Score: {score:.4f}")
         lines.append("Feature Contributions:")
         lines.extend(f"  - {line}" for line in explanation.split("\n"))
