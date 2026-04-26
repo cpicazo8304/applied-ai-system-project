@@ -29,7 +29,7 @@ if __name__ == "__main__":
     bic_scores = []
     probabilities = []
     gms = []
-    for n in [20, 30, 40, 50]:
+    for n in [10, 15, 20, 25]:
         gmm = GaussianMixture(n_components=n)
         gmm.fit(X)
         gms.append(gmm)
