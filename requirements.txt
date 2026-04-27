@@ -3,3 +3,7 @@ pytest
 streamlit
 anthropic
 python-dotenv
+numpy
+scikit-learn
+joblib
+streamlit
