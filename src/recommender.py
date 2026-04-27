@@ -22,7 +22,7 @@ Scoring weights (must sum to 1.0)
     "speechiness":    0.05,
     "genre":          0.06,
     "artist":         0.02,
-    "title":          0.02
+    "name":          0.02
 
 Similarity formulas
 -------------------
@@ -32,7 +32,7 @@ Similarity formulas
       sim = 1 - |song_bpm - pref_bpm| / (MAX_BPM - MIN_BPM)
 - Genre:
       fuzzy lookup via pre-defined similarity matrices (see below)
-- Artist / Title:
+- Artist / Name:
       exact match → 1.0, otherwise 0.0
 """
 
@@ -120,7 +120,7 @@ class UserProfile:
             "speechiness":    0.05,
             "genre":          0.06,
             "artist":         0.02,
-            "title":          0.02
+            "name":          0.02
         }
         self.num_interactions = 0
         self.log = []
@@ -154,7 +154,6 @@ class UserProfile:
         The profile should be adjusted to increase the weights of attributes similar to the liked song.
         """
         self.num_interactions += 1
-        self.log.append(f"Liked song: {song['title']} by {song['artist']}")
 
         # update preferred energy, acousticness, valence, tempo, danceability towards the liked song's attributes
         old_energy = self.preferred_energy
@@ -175,7 +174,7 @@ class UserProfile:
         self.preferred_loudness = self.alpha * song['loudness'] + (1 - self.alpha) * self.preferred_loudness
         self.preferred_liveness = self.alpha * song['liveness'] + (1 - self.alpha) * self.preferred_liveness
 
-        self.log.append(f"Liked '{song['title']}' by {song['artist']} → "
+        self.log.append(f"Liked '{song['name']}' by {', '.join(song['artists'])} → "
             f"energy: {old_energy:.2f} → {self.preferred_energy:.2f}, "
             f"acousticness: {old_acousticness:.2f} → {self.preferred_acousticness:.2f}, "
             f"valence: {old_valence:.2f} → {self.preferred_valence:.2f}, "
@@ -196,7 +195,6 @@ class UserProfile:
         The profile should be adjusted to decrease the weights of attributes similar to the skipped song.
         """
         self.num_interactions += 1
-        self.log.append(f"Skipped song: {song['title']} by {song['artist']}")
 
         old_energy = self.preferred_energy
         old_valence = self.preferred_valence
@@ -216,7 +214,7 @@ class UserProfile:
         self.preferred_loudness = (1 + self.beta) * self.preferred_loudness - self.beta * song['loudness']
         self.preferred_liveness = (1 + self.beta) * self.preferred_liveness - self.beta * song['liveness']
 
-        self.log.append(f"Skipped '{song['title']}' by {song['artist']} → "
+        self.log.append(f"Skipped '{song['name']}' by {', '.join(song['artists'])} → "
                         f"energy: {old_energy:.2f} → {self.preferred_energy:.2f}, "
                         f"acousticness: {old_acousticness:.2f} → {self.preferred_acousticness:.2f}, "
                         f"valence: {old_valence:.2f} → {self.preferred_valence:.2f}, "
@@ -267,8 +265,8 @@ class UserProfile:
             "preferred_loudness": self.preferred_loudness,
             "preferred_liveness": self.preferred_liveness,
             "preferred_genres": {genre: 1.0 for genre in self.favorite_genres},
-            "favorite_artist": self.favorite_artists[0] if self.favorite_artists else "",
-            "favorite_title": "",
+            "favorite_artists": [artist for artist in self.favorite_artists] if self.favorite_artists else [],
+            "favorite_names": "",
         }
 
     def update_ranked_songs(self, ranked_songs: List[Tuple[Dict, float, str]]):
@@ -359,7 +357,7 @@ class UserProfile:
             Weights must sum to 1.0. Respond only in this exact JSON format with no preamble: 
             {
                 {"energy": float, "acousticness": float, "valence": float, "tempo": float, 
-            "danceability": float, "loudness": float, "liveness": float, "speechiness": float, "genre": float, "artist": float, "title": float}
+            "danceability": float, "loudness": float, "liveness": float, "speechiness": float, "genre": float, "artist": float, "name": float}
             }
             """
             response = client.messages.create(
@@ -423,7 +421,7 @@ class Recommender:
         rec = Recommender(song_objs)
         results = rec.recommend(user_profile, k=5)
         for song, score, explanation in results:
-            print(song.title, score)
+            print(song["name"], score)
     """
 
     def __init__(self, songs: List[Dict]):
@@ -452,8 +450,8 @@ class Recommender:
         song : Dict
             A song dict as returned by load_songs().
                 preferred_genres  (Dict[str, float] — genre → weight),
-                favorite_artist   (str),
-                favorite_title    (str)
+                favorite_artists   (List[str]),
+                favorite_name   (List[str])
         song : Dict
             A song dict as returned by load_songs().
 
@@ -508,23 +506,32 @@ class Recommender:
         reasons.append(f"genre ({song['genre']}): sim={genre_sim:.3f}, contrib={genre_contrib:.4f} (w={weights['genre']})")
         total += genre_contrib
 
-        # Artist — exact match
-        artist_sim = 1.0 if song["artist"] == prefs.get("favorite_artist", "") else 0.0
+        # Artist — match if any favorite artist appears in song's artist list
+        song_artists = song["artists"] if isinstance(song["artists"], list) else [song["artists"]]
+        favorite_artists = prefs.get("favorite_artists", [])
+        if isinstance(favorite_artists, str):
+            favorite_artists = [favorite_artists]
+
+        artist_sim = 1.0 if any(a in song_artists for a in favorite_artists) else 0.0
         artist_contrib = weights["artist"] * artist_sim
         reasons.append(
-            f"artist match ({song['artist']}): contrib={artist_contrib:.4f} (w={weights['artist']})"
+            f"artist match ({song['artists']}): contrib={artist_contrib:.4f} (w={weights['artist']})"
             if artist_sim else f"artist: no match, contrib=0.0000 (w={weights['artist']})"
         )
         total += artist_contrib
 
-        # Title — exact match
-        title_sim = 1.0 if song["title"] == prefs.get("favorite_title", "") else 0.0
-        title_contrib = weights["title"] * title_sim
+        # Name — exact match
+        favorite_names = prefs.get("favorite_names", [])
+        if isinstance(favorite_names, str):
+            favorite_names = [favorite_names]
+        song_name = song["name"][0] if isinstance(song["name"], list) else song["name"]
+        name_sim = 1.0 if song_name in favorite_names else 0.0
+        name_contrib = weights["name"] * name_sim
         reasons.append(
-            f"title match ({song['title']}): contrib={title_contrib:.4f} (w={weights['title']})"
-            if title_sim else f"title: no match, contrib=0.0000 (w={weights['title']})"
+            f"name match ({song['name']}): contrib={name_contrib:.4f} (w={weights['name']})"
+            if name_sim else f"name: no match, contrib=0.0000 (w={weights['name']})"
         )
-        total += title_contrib
+        total += name_contrib
 
         return round(total, 6), reasons
     
@@ -666,7 +673,7 @@ def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, s
     Returns
     -------
     A multi-line string with one section per recommended song, including:
-        - Song title, artist, genre
+        - Song name, artist, genre
         - Audio features
         - Top cluster assignments
         - Overall similarity score
@@ -676,8 +683,8 @@ def structure_recommendations_for_llm(recommendations: List[Tuple[Dict, float, s
     for idx, (song, score, explanation) in enumerate(recommendations, start=1):
         lines.append(f"Recommendation #{idx}:")
         lines.append(f"ID: {song['id']}")
-        lines.append(f"Title: {song['title']}")
-        lines.append(f"Artist: {song['artist']}")
+        lines.append(f"Name: {song['name'][0] if isinstance(song['name'], list) else song['name']}")
+        lines.append(f"Artist: {', '.join(song['artists']) if isinstance(song['artists'], list) else song['artists']}")
         lines.append(f"Genre: {song['genre']}")
 
         # Audio features
@@ -770,6 +777,6 @@ if __name__ == "__main__":
     print("\nTop 5 Recommendations:")
     print("-" * 50)
     for song, score, explanation in recommender.recommend_songs(user_prefs, songs, k=5):
-        print(f"[{score:.4f}] {song['title']} by {song['artist']} ({song['genre']})")
+        print(f"[{score:.4f}] {song['name']} by {', '.join(song['artists']) if isinstance(song['artists'], list) else song['artists']} ({song['genre']})")
         print(explanation)
         print("-" * 50)

@@ -247,19 +247,19 @@ if __name__ == "__main__":
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "env", ".env"))
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-    # # Run the user profile test
-    # print("\nRunning user_profile_test...\n")
-    # user_profile_test(client)
+    # Run the user profile test
+    print("\nRunning user_profile_test...\n")
+    user_profile_test(client)
 
-    # # run the get explanations test
-    # print()
-    # print("\nRunning test_get_explanations...\n")
-    # test_get_explanations(client)
+    # run the get explanations test
+    print()
+    print("\nRunning test_get_explanations...\n")
+    test_get_explanations(client)
 
-    # # run the check ranked recommendations test
-    # print()
-    # print("\nRunning test_check_ranked_recommendations...\n")
-    # test_check_ranked_recommendations(client)
+    # run the check ranked recommendations test
+    print()
+    print("\nRunning test_check_ranked_recommendations...\n")
+    test_check_ranked_recommendations(client)
 
     # run the changing weights test
     print()
