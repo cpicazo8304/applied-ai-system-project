@@ -1,0 +1,23 @@
+flowchart TD
+    A[User Input\nGenres + Artists] --> B[UserProfile Init\nLLM Call]
+    B --> C[Numerical Preferences\nenergy, acousticness, valence\ntempo, danceability, loudness\nliveness, speechiness]
+    
+    C --> D[GMM Inference\npredict_proba]
+    E[550k+ Song Catalog\nCSV + Cluster Probabilities] --> D
+    D --> F[Cosine Similarity\nUser Vector vs Song Vectors]
+    F --> G[Top 100 Candidates]
+
+    G --> H[Weighted Similarity Scoring\n11 features per song]
+    C --> H
+    H --> I[Ranked Top-K Songs]
+
+    I --> J[Self-Critique LLM\nReliability Score]
+    C --> J
+    J --> K{Score >= 0.70?}
+    K -->|Yes| L[Return Recommendations\n+ Plain English Explanations]
+    K -->|No| M[Weight Adjustment LLM\nPersonalized Weights]
+    M --> H
+
+    L --> N[User Interaction\nLike / Skip]
+    N --> O[EMA Profile Update\nnudge toward liked\npush away from skipped]
+    O --> C
