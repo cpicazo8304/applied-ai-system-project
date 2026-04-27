@@ -1,343 +1,117 @@
-# 🎵 Music Recommender Simulation
+# AuraTrack — Applied AI Music Recommender
 
-## Project Summary
+## Original Project
 
-In this project you will build and explain a small music recommender system.
+The original project was the Music Recommender Simulation. Its goal was to simulate a music recommender that an app
+like Spotify may use, using help from AI's capabilities to learn the structure of such system. We were tasked to create
+a numerical method to find similar songs to a user's profile and recommend top k songs.
 
-Your goal is to:
+## Title and Summary
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
+My project adds to this system but introducing more data (550k songs), Claude API capabilities, and clustering methods for candidate generation in order to create an applied AI system.
 
-Replace this paragraph with your own summary of what your version does.
+## Architecture Overview
 
----
+AuraTrack is built as a two-stage retrieval and ranking pipeline that mirrors how production recommender systems work at scale.
 
-## How The System Works
+**Stage 1 — Candidate Generation (GMM)**
+When a user profile is created, their preferences (energy, acousticness, valence, tempo, danceability, loudness, liveness, speechiness) are fed into a pre-trained Gaussian Mixture Model. The GMM converts the profile into a cluster probability vector, which is compared against 550k+ songs using cosine similarity. The top 100 candidate songs are returned for detailed scoring.
 
-### Features to Use
+**Stage 2 — Weighted Similarity Scoring**
+Each candidate song is scored against the user profile using a weighted similarity formula across 11 features. Numerical features use direct subtraction, tempo and loudness are normalized over their respective ranges, and genre uses a fuzzy similarity matrix. The top-k songs are returned as recommendations.
 
-The features I will focus on will be (order in importance):
-  - Energy
-  - Acousticness
-  - Mood
-  - Valence
-  - Tempo
-  - Danceability
-  - Genre
-  - Artist
-  - Title
+**Self-Critique and Adaptive Weights**
+After ranking, an LLM evaluates whether the recommendations make logical sense given the user profile. If the reliability score falls below 0.70, a second LLM call suggests personalized weight adjustments. This means each user's scoring formula adapts over time rather than using global fixed weights.
 
-Features like artist and title make sense to exclude, given the amount of data we have available, but will include them but have them ranked in the bottom with a low weighting.
+## Setup Instructions
 
-### Weighted Scoring Formula
-Overall song score = sum(weight * similarity for each feature). Weights sum to 1, based on ranking:
-- Energy: 0.25
-- Acousticness: 0.20
-- Mood: 0.15
-- Valence: 0.12
-- Tempo: 0.10
-- Danceability: 0.08
-- Genre: 0.04
-- Artist: 0.02
-- Title: 0.02
+### Prerequisites
+- Python 3.10+
+- A virtual environment (recommended)
+- Anthropic API key (get one at [console.anthropic.com](https://console.anthropic.com))
 
-### Similarity Scores Formulas
-- **Numerical features (energy, acousticness, valence, tempo, danceability)**: Use `similarity = 1 - |song_value - user_preferred|`. For tempo (in BPM, not 0-1), normalize: `similarity = 1 - |tempo - pref| / (max_tempo - min_tempo)` (e.g., min=60, max=200).
+### Download Data
+- Go to [Clickable Text](https://www.kaggle.com/datasets/serkantysz/550k-spotify-songs-audio-lyrics-and-genres?select=songs.csv)
+- Download Data 
 
-- **Categorical features**:
-  - **Genre and Mood**: Use fuzzy similarity matrices (based on relatedness, 0-1 scale).
-  - **Artist**: Exact match: `similarity = 1` if same artist, else `0`.
-  - **Title**: Exact match: `similarity = 1` if same title, else `0`.
+### Installation
 
-
-### Similarity Matrix for Categorical Features
-Since different moods and genres can be similar in the type of songs, having a discrete 1 or 0 if they equal or not wouldn't make sense, so having fuzzy matching based on relatedness makes more sense. Here they are:
-
-#### Genre Similarity Matrix
-(17x17, unique genres: ambient, classical, country, edm, electronic, folk, gospel, hip-hop, indie pop, jazz, lofi, metal, pop, reggae, rock, synthwave, world)
-
-| Genre      | ambient | classical | country | edm | electronic | folk | gospel | hip-hop | indie pop | jazz | lofi | metal | pop | reggae | rock | synthwave | world |
-|------------|---------|-----------|---------|-----|------------|------|--------|----------|-----------|------|------|-------|-----|--------|------|----------|-------|
-| ambient   | 1.0    | 0.5      | 0.3    | 0.5 | 0.6       | 0.4 | 0.3   | 0.2     | 0.3      | 0.4 | 0.8 | 0.1  | 0.2 | 0.3   | 0.2 | 0.7     | 0.4  |
-| classical | 0.5    | 1.0      | 0.4    | 0.2 | 0.3       | 0.6 | 0.7   | 0.1     | 0.5      | 0.8 | 0.4 | 0.2  | 0.4 | 0.3   | 0.3 | 0.2     | 0.5  |
-| country   | 0.3    | 0.4      | 1.0    | 0.2 | 0.2       | 0.8 | 0.5   | 0.3     | 0.6      | 0.4 | 0.3 | 0.4  | 0.5 | 0.4   | 0.7 | 0.1     | 0.4  |
-| edm       | 0.5    | 0.2      | 0.2    | 1.0 | 0.9       | 0.2 | 0.3   | 0.6     | 0.4      | 0.2 | 0.4 | 0.3  | 0.7 | 0.4   | 0.4 | 0.8     | 0.3  |
-| electronic| 0.6    | 0.3      | 0.2    | 0.9 | 1.0       | 0.3 | 0.3   | 0.5     | 0.4      | 0.3 | 0.5 | 0.3  | 0.6 | 0.4   | 0.4 | 0.8     | 0.4  |
-| folk      | 0.4    | 0.6      | 0.8    | 0.2 | 0.3       | 1.0 | 0.5   | 0.2     | 0.7      | 0.5 | 0.5 | 0.3  | 0.5 | 0.4   | 0.6 | 0.2     | 0.5  |
-| gospel    | 0.3    | 0.7      | 0.5    | 0.3 | 0.3       | 0.5 | 1.0   | 0.4     | 0.5      | 0.8 | 0.3 | 0.2  | 0.6 | 0.5   | 0.4 | 0.2     | 0.7  |
-| hip-hop   | 0.2    | 0.1      | 0.3    | 0.6 | 0.5       | 0.2 | 0.4   | 1.0     | 0.5      | 0.3 | 0.3 | 0.4  | 0.8 | 0.7   | 0.5 | 0.4     | 0.5  |
-| indie pop | 0.3    | 0.5      | 0.6    | 0.4 | 0.4       | 0.7 | 0.5   | 0.5     | 1.0      | 0.6 | 0.4 | 0.5  | 0.9 | 0.4   | 0.7 | 0.4     | 0.4  |
-| jazz      | 0.4    | 0.8      | 0.4    | 0.2 | 0.3       | 0.5 | 0.8   | 0.3     | 0.6      | 1.0 | 0.5 | 0.2  | 0.5 | 0.4   | 0.4 | 0.3     | 0.6  |
-| lofi      | 0.8    | 0.4      | 0.3    | 0.4 | 0.5       | 0.5 | 0.3   | 0.3     | 0.4      | 0.5 | 1.0 | 0.2  | 0.3 | 0.3   | 0.3 | 0.5     | 0.4  |
-| metal     | 0.1    | 0.2      | 0.4    | 0.3 | 0.3       | 0.3 | 0.2   | 0.4     | 0.5      | 0.2 | 0.2 | 1.0  | 0.4 | 0.2   | 0.9 | 0.3     | 0.3  |
-| pop       | 0.2    | 0.4      | 0.5    | 0.7 | 0.6       | 0.5 | 0.6   | 0.8     | 0.9      | 0.5 | 0.3 | 0.4  | 1.0 | 0.5   | 0.6 | 0.6     | 0.4  |
-| reggae    | 0.3    | 0.3      | 0.4    | 0.4 | 0.4       | 0.4 | 0.5   | 0.7     | 0.4      | 0.4 | 0.3 | 0.2  | 0.5 | 1.0   | 0.3 | 0.3     | 0.8  |
-| rock      | 0.2    | 0.3      | 0.7    | 0.4 | 0.4       | 0.6 | 0.4   | 0.5     | 0.7      | 0.4 | 0.3 | 0.9  | 0.6 | 0.3   | 1.0 | 0.4     | 0.4  |
-| synthwave | 0.7    | 0.2      | 0.1    | 0.8 | 0.8       | 0.2 | 0.2   | 0.4     | 0.4      | 0.3 | 0.5 | 0.3  | 0.6 | 0.3   | 0.4 | 1.0     | 0.3  |
-| world     | 0.4    | 0.5      | 0.4    | 0.3 | 0.4       | 0.5 | 0.7   | 0.5     | 0.4      | 0.6 | 0.4 | 0.3  | 0.4 | 0.8   | 0.4 | 0.3     | 1.0  |
-
-#### Mood Similarity Matrix
-(16x16, unique moods: chill, energetic, exhilarated, focused, happy, hopeful, inspired, intense, laid-back, melancholic, moody, nostalgic, peaceful, playful, relaxed, tribal)
-
-| Mood       | chill | energetic | exhilarated | focused | happy | hopeful | inspired | intense | laid-back | melancholic | moody | nostalgic | peaceful | playful | relaxed | tribal |
-|------------|-------|-----------|-------------|---------|-------|---------|----------|---------|-----------|-------------|-------|-----------|----------|---------|---------|--------|
-| chill     | 1.0  | 0.4      | 0.3        | 0.8    | 0.5  | 0.6    | 0.5     | 0.3    | 0.9      | 0.6        | 0.7  | 0.7      | 0.9     | 0.4    | 0.9    | 0.4   |
-| energetic | 0.4  | 1.0      | 0.8        | 0.6    | 0.7  | 0.7    | 0.6     | 0.9    | 0.5      | 0.3        | 0.4  | 0.4      | 0.4     | 0.8    | 0.5    | 0.6   |
-| exhilarated| 0.3  | 0.8      | 1.0        | 0.5    | 0.8  | 0.7    | 0.7     | 0.9    | 0.4      | 0.2        | 0.3  | 0.3      | 0.3     | 0.9    | 0.4    | 0.5   |
-| focused   | 0.8  | 0.6      | 0.5        | 1.0    | 0.4  | 0.6    | 0.6     | 0.5    | 0.7      | 0.5        | 0.6  | 0.6      | 0.7     | 0.4    | 0.7    | 0.4   |
-| happy     | 0.5  | 0.7      | 0.8        | 0.4    | 1.0  | 0.8    | 0.8     | 0.6    | 0.6      | 0.3        | 0.4  | 0.5      | 0.5     | 0.9    | 0.6    | 0.5   |
-| hopeful   | 0.6  | 0.7      | 0.7        | 0.6    | 0.8  | 1.0    | 0.9     | 0.5    | 0.6      | 0.4        | 0.5  | 0.7      | 0.6     | 0.7    | 0.7    | 0.5   |
-| inspired  | 0.5  | 0.6      | 0.7        | 0.6    | 0.8  | 0.9    | 1.0     | 0.5    | 0.5      | 0.4        | 0.5  | 0.8      | 0.5     | 0.7    | 0.6    | 0.6   |
-| intense   | 0.3  | 0.9      | 0.9        | 0.5    | 0.6  | 0.5    | 0.5     | 1.0    | 0.4      | 0.7        | 0.8  | 0.4      | 0.3     | 0.6    | 0.4    | 0.7   |
-| laid-back | 0.9  | 0.5      | 0.4        | 0.7    | 0.6  | 0.6    | 0.5     | 0.4    | 1.0      | 0.5        | 0.6  | 0.6      | 0.8     | 0.5    | 0.9    | 0.5   |
-| melancholic| 0.6  | 0.3      | 0.2        | 0.5    | 0.3  | 0.4    | 0.4     | 0.7    | 0.5      | 1.0        | 0.9  | 0.7      | 0.6     | 0.2    | 0.5    | 0.4   |
-| moody     | 0.7  | 0.4      | 0.3        | 0.6    | 0.4  | 0.5    | 0.5     | 0.8    | 0.6      | 0.9        | 1.0  | 0.6      | 0.6     | 0.3    | 0.6    | 0.5   |
-| nostalgic | 0.7  | 0.4      | 0.3        | 0.6    | 0.5  | 0.7    | 0.8     | 0.4    | 0.6      | 0.7        | 0.6  | 1.0      | 0.7     | 0.4    | 0.7    | 0.5   |
-| peaceful  | 0.9  | 0.4      | 0.3        | 0.7    | 0.5  | 0.6    | 0.5     | 0.3    | 0.8      | 0.6        | 0.6  | 0.7      | 1.0     | 0.4    | 0.9    | 0.4   |
-| playful   | 0.4  | 0.8      | 0.9        | 0.4    | 0.9  | 0.7    | 0.7     | 0.6    | 0.5      | 0.2        | 0.3  | 0.4      | 0.4     | 1.0    | 0.5    | 0.6   |
-| relaxed   | 0.9  | 0.5      | 0.4        | 0.7    | 0.6  | 0.7    | 0.6     | 0.4    | 0.9      | 0.5        | 0.6  | 0.7      | 0.9     | 0.5    | 1.0    | 0.5   |
-| tribal    | 0.4  | 0.6      | 0.5        | 0.4    | 0.5  | 0.5    | 0.6     | 0.7    | 0.5      | 0.4        | 0.5  | 0.5      | 0.4     | 0.6    | 0.5    | 1.0   |
-
-### User Profile Information
-User profile should have their own scores like preferred_energy, preferred_valence, preferred_acousticness, preferred_tempo, preferred_danceability, preferred_genres, and preferred_moods. These should be scores on the range of [0, 1] (for numerical features) and categorical sets for genre/mood.
-
-Example:
-
-```python
-user_profile = {
-    'preferred_energy': 0.8,
-    'preferred_valence': 0.7,
-    'preferred_acousticness': 0.3,
-    'preferred_tempo': 120,
-    'preferred_danceability': 0.6,
-    'preferred_genres': {'pop': 0.5, 'rock': 0.3, 'electronic': 0.2},
-    'preferred_moods': {'happy': 0.4, 'energetic': 0.3, 'chill': 0.3},
-    'favorite_artist': 'Neon Echo',
-    'favorite_genre': 'pop',
-    'favorite_mood': 'happy'
-}
+1. Clone the repository:
+```bash
+git clone <your-repo-url>
+cd applied-ai-system-project
 ```
 
-#### Mathematical profile update rule
-For numeric features, use an exponential moving average (EMA) update after each user action:
+2. Create and activate a virtual environment:
+```bash
+python -m venv finalproj
+# Windows
+finalproj\Scripts\activate
+# Mac/Linux
+source finalproj/bin/activate
+```
 
-- `pref_new = (1 - \alpha) * pref_old + \alpha * song_value`
-- `\alpha` in (0,1] is the learning rate (e.g., 0.1)
-
-Example for energy on a like:
-
-- `pref_energy_new = 0.9 * pref_energy_old + 0.1 * song_energy`
-
-For negative signals (skip/dislike), push away:
-
-- `pref_energy_new = pref_energy_old + \beta * (pref_energy_old - song_energy)`
-
-or just reduce weight by decreasing confidence and normalizing.
-
-For categorical preferences, use counts and soft probabilities:
-
-- `genre_score[genre] += 1` on like, `-= 1` on skip (floor 0)
-- normalize to probabilities in [0,1]
-
-#### Ranking rule (song list)
-Compute `overall_score` for each candidate song, then sort by descending score:
-
-- `ranked_songs = sorted(songs, key=lambda s: s.overall_score, reverse=True)`
-
-This is the core pipeline: profile update → scoring rule → ranking rule.
-
-### Which songs are chosen? (ranking system)
-Based on the similarity scores and weighting system. They should lead to different scores that allows for a ranking system to be used to order songs in how related they are to the user's profile.
-
-Here is an example of it:
-
-![Screenshot](screenshots/recommendations-part-1.png)
-![Screenshot](screenshots/recommendations-part-2.png)
-
-
-### Potential Biases
-- Data representation bias: Song catalog may underrepresent diverse genres, artists, or cultures, favoring mainstream options.
-Feature weighting bias: Heavier emphasis on features like energy can marginalize calmer or niche songs.
-
-- Similarity matrix bias: Subjective genre/mood relatedness may undervalue emerging or hybrid styles.
-
-- User profile echo chamber: Updates reinforce existing preferences, limiting exposure to new music.
-
-- Cold start bias: New users/songs lack data, leading to suboptimal recommendations.
-
-- Interaction interpretation bias: Skips treated as dislikes may misinterpret user intent.
-
-- Demographic bias: Dataset reflecting specific tastes can exclude or unfairly serve other groups.
-
-
----
-
-## Getting Started
-
-### Setup
-
-1. Create a virtual environment (optional but recommended):
-
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
-
-2. Install dependencies
-
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+4. Set up your environment variables — create a file at `src/env/.env`:
 
+### Running the App
 ```bash
-python -m src.main
+cd src
+streamlit run app.py
 ```
 
 ### Running Tests
-
-Run the starter tests with:
-
 ```bash
-pytest
+cd src
+pytest test_recommender.py -v
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+## Sample Interactions
 
----
+### Example 1 - Explanation Generation
+![Screenshot](assets/explanation_generation_example.png)
 
-## Experiments You Tried
+### Example 2 - Reliability Scores plus Contradiction Generation
+![Screenshot](assets/reliability_contradictions_generation_example.png)
 
-Here, I tried multiple experiments such as removing a feature, changing the weight of a feature(s), or trying different edge cases of user profiles. Further discussion is in the model card.
+### Example 3 - New Weights Generation
+![Screenshot](assets/changing_weights_generation_example.png)
 
-### Feature Removal
-Removed danceability (weight=0.08) to see if it had any effect on the recommendations. My prediction was that it wouldn't since it had a lower weight compared to other features. However, there were some changes to "Dead Center" and "Chill Lofi", which points to the idea of danceability being a tiebreaker for some songs. So, lower weighted features are important, by acting as tiebreakers when higher weighted features' scores are tied.
+## Design Decisions
 
-### Weight Change
-Changed weights of energy (weight=0.25) and mood (weight=0.15). This made a difference in "Conflicting Energy/Mood" since originally energy was the deciding factor with its higher weight, but with the weight change, mood became the deciding factor.
+Data is important so I wanted to add more data from a Spotify Kaggle dataset. Additionally, I clustered
+songs together using a Gaussian Mixture, which uses the idea of expectation maximization, which is like a soft
+K-means clustering. This worked better than hard clustering because music songs don't fit neatly into 
+discrete categories. A song can be partly Jazz and partly Classical, or blend Electronic and Pop 
+characteristics. GMM captures this ambiguity by assigning each song a probability distribution across all 
+clusters rather than forcing it into a single one. I used the cosine similarity to compare the clustering with a
+user profile with all 550k+ songs to reduce the number of candidates to around 100-300 then found the weighted similarity scores within these candidates. The weights are adpative in which if recommendations aren't good enough, the Claude agent is able to adjust the weights to what the user's profile. Adaptive weights plus weighted similarity is better since different users care about different features more like a user can think mood is more important and another may think the genre is. 
 
-### User Profiles Tested
+## Testing Summary
 
-#### High Energy
-![Screenshot](screenshots/high_energy_part1.png)
-![Screenshot](screenshots/high_energy_part2.png)
-
-#### Chilled Lofi
-![Screenshot](screenshots/chilled_lofi_part1.png)
-![Screenshot](screenshots/chilled_lofi_part2.png)
-
-
-#### Deep Intense Rock
-![Screenshot](screenshots/deep_intense_rock_part1.png)
-![Screenshot](screenshots/deep_intense_rock_part2.png)
-
-#### Conflicting Mood/Energy Edge Case
-![Screenshot](screenshots/conflicting_energy_mood_part1.png)
-![Screenshot](screenshots/conflicting_energy_mood_part2.png)
-
-#### Dead Center Edge Case
-![Screenshot](screenshots/dead_center_part1.png)
-![Screenshot](screenshots/dead_center_part2.png)
-
-#### Impossible Unicorn Edge Case
-![Screenshot](screenshots/impossible_unicorn_part1.png)
-![Screenshot](screenshots/impossible_unicorn_part2.png)
-
-## Limitations and Risks
-
-- Similarity Matrix Adaptability
-- Dataset Limitation
-- Bias towards higher weighted features
-
-(Further discussion in model card)
+I did tests in userprofile initialization, check_ranked_recommendations, get_explanations, score_song, recommend_songs pipeline, EMA updates (like and skip), and weight validation. The logic of each method worked well. I also tested the responses of each LLM call, which were initializing the user profile, giving reliability scores and contradictions in the recommendations, changing the weights if reliability score not good enough, and generating explanations. They mainly worked well, but the weight changes sometimes didn't add up to 1, which could make the scoring ineffective. I learned here that even if you ask for certain restrictions and guidelines, the AI isn't going to be 100% accurate.
 
 ## Reflection
 
+**What are the limitations or biases in your system?**
 
-[**Model Card**](model_card.md)
+My system largely depends on the data it is given. If new songs, artists, and genres are given, it wouldn't be able to work as well. 
 
-Write 1 to 2 paragraphs here about what you learned:
+**Could your AI be misused, and how would you prevent that?**
 
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
+It could not because the AI is used within the system and any users are not using the AI directly. The only way they can affect it by feeding it false likes and skips to depict a user profile that doesn't represent the user. Can't really prevent that because that is the profile the user wants and will get.
 
+**What surprised you while testing your AI's reliability?**
 
----
+Some of the math wasn't perfect like adding up the weights. I told it specifically to have the weights add up to one, but it sometimes didn't do that. I was close to not including that "add up to 1" check because of my confidence in the AI doing it correctly, but glad I did, since it wasn't perfect.
 
-From what I researched, recommendation systems are influenced by how the user interacts with the platform. Likes, dislikes, shares, skips, and replays contribute to what is recommended to them. Behind the scenes, a recommendation system uses scores to determine if a song or video would match a user's preferences. Collaborative filtering (using other users' behavior) looks at other similar users and sees additional songs or videos they have listened/watched and recommend those to a user. However, this could not work well with new users since they don't have as much of a prescence in platform. As for content-based filtering, this is more of looking at a user's profile only and determining what they like (kind of what will be done in this project).
+**Describe your collaboration with AI during this project. Identify one instance when the AI gave a helpful suggestion and one instance where its suggestion was flawed or incorrect.**
 
-Bias and unfairness can show up when the underlying data or design choices quietly favor certain groups or styles over others. In this project, the 20-song catalog is heavily weighted toward Western genres such as pop, rock, lofi, EDM, while genres like world music and reggae have only one representative each, meaning users who prefer those styles will almost always get lower-quality matches simply because the data isn't there. So, in real-world systems, less known artists, less know genres, etc. will get lower-quality matches.
+It helped visualize and complete my vision for the project. I wanted to use more data and cluster them together and use agents to help update weights and user profiles, but didn't know how to get started. The AI helped set my ideas up, so I can add to it. The times it was incorrect is when it tried to do too much or didn't have the full context. So, I had to understand that and just get the general ideas, and apply it to my context.
 
-## 7. `model_card_template.md`
-
-Combines reflection and model card framing from the Module 3 guidance. :contentReference[oaicite:2]{index=2}  
-
-```markdown
-# 🎧 Model Card: Music Recommender Simulation
-
-## 1. Model Name  
-
-AuraTrack 1.0
-
-## 2. Intended Use  
-
-This recommender is designed to suggest songs from a catalog that best match a user's listening preferences based on audio features and mood. It assumes the user has some general sense of what they like. This is primarily a classroom exploration project, built to demonstrate how a weighted similarity scoring system works in practice. However, the  logic works like the real-world music recommenders used by platforms like Spotify.
-
-## 3. How the Model Works  
-
-This music recommender includes traits such as energy, acousticness, tempo, mood, genre, and more. Each trait is compared against what the listener prefers. Each trait has a numerical value from 0 to 1. Not all traits are weighted equally. Energy and acousticness carry more influence than genre or artist name (because of the size of the data). These traits define how a song feels more than anything else. Like, when you going to the gym, you want a song with more energy. If you are studying, you would want the opposite. Every song is given a score based on how their traits compare with the user's preferences. It is computed with a simple subtraction. Smaller differences are better since that means the numerical values were close. The catalog then gets sorted from highest to lowers, and the top results are the recommendations.
-
-## 4. Data  
-
-- The catalog contains 20 songs, each represented as a row in songs.csv with 10 features: id, title, artist, genre, mood, energy, tempo_bpm, valence, danceability, and acousticness.
-- Genres represented (17 total): ambient, classical, country, EDM, electronic, folk, gospel, hip-hop, indie pop, jazz, lofi, metal, pop, reggae, rock, synthwave, and world. Coverage is broad but shallow — most genres have only one song representing them, meaning a single song carries the entire weight of its genre in recommendations.
-
-- Moods represented (13 out of 16): chill, energetic, exhilarated, focused, happy, hopeful, inspired, intense, laid-back, melancholic, moody, nostalgic, peaceful, playful, relaxed, and tribal are all defined in the similarity matrix, but the catalog only uses a subset of them. 
-
-- No data was added or removed — the original 20-song catalog was used as-is throughout all testing.
-
-- Missing aspects: 
-    - Scale: 20 songs is far too small for a real recommender. Many profiles returned the same songs regardless of weight changes, simply because there aren't enough candidates.
-    - Sub-genre nuance: there's no distinction between, say, hard rock and indie rock, or deep house and tech EDM.
-    -Lyrics: could add to the mood.
-
-## 5. Strengths  
-
-The system works best for users with clear, consistent preferences, profiles like High-Energy Pop and Deep Intense Rock consistently produced intuitive top results like Storm Runner, Winter Solitude, and Code in Motion across multiple weight configurations. The fuzzy similarity matrices are a genuine strength, allowing the mood and genre components to reward near-matches rather than punishing any deviation from an exact label, which meant chill-adjacent moods like "focused" and "peaceful" still surfaced correctly for the Chill Lofi profile. The per-feature explanation output also proved valuable during testing, making it immediately clear why each song ranked where it did and allowing weight changes and bug fixes to be verified at a glance.
-
-
-## 6. Limitations and Bias 
-
-- One limitation is that for my similarity matrix, it only works with the current categorical values.
-If a new category is added, it may not view that category as anything important which could ruin results.
-So, it would need to update every time there is something new, or need to add a large amount of categorical values beforehand.
-
-- Another is dataset limitation. There are multiple edge cases that cannot be tested with limited number of datasets. My system requires more data to be properly tested and reviewed. 
-
-- Also, the system is biased towards to the higher weights. It becomes a bit too deterministic. Maybe it would be better to make it stochastic/random by ranking them with a probability distribution. 
-
-## 7. Evaluation  
-
-I tested the High Energy Pop, Chill Lofi, and Deep Intense Rock user profiles. I looked for if the genres of songs matched the user profiles or were related. I also checked for the energy and mood, which usually tells you if a song is for situations where you want energy like the gym (High Energy Pop) or not like when studying (chill lofi). 
-
-They were able to behave like they were supposed to be. Each of the user profiles had a top 5 of songs that made sense in terms how much energy they had, the mood they had, and if the genre made sense. Like for Chill Lofi, it made sense to have more calming music. Most were lofi songs but some were other types of genres like folk or classical, which made sense since these type of genres are more relaxed with less energy. There wasn't anything suprising.
-
-I also tested 3 edge case user profiles: Dead Center, Impossible Unicorn, Conflicting Energy/Mood. 
-- Dead Center had the middle numerical value for all the features. This would make it difficult to choose which songs for the top recommendations, it should be mixed and small changes to tie breakers would change the order easily. 
-
-- Impossible Unicorn's had preferences that no single song in the CSV satisfies. For example, high energy AND high acousticness AND slow tempo. Should still rank something on top but the scores should be low. The top was 0.63 which was low compared to other user profiles. 
-
-- Conflicting energy/mood tested a user profile that wanted high energy but wants melancholic/peaceful mood. Scores will be pulled in opposite directions. I wanted to see which would win out. Energy had the bigger weight so made sense that it was the deciding factor in the rankings.
-
-
-## 8. Future Work  
-
-A more adaptive similarity matrix/weighing system would make sense. Like if extra categorical values are included, it would be nice to have a matrix that would adjust. Also, if more features are included, weighting can be adjusted accordingly. Also, having a probability distribution over the scores of each song, and having a sampling process that gets the top 5 recommendations (leaves the door open for users to explore songs that may not be in their kind of music). 
-
-## 9. Personal Reflection  
-
-There is a lot that you have to think about with recommendation systems. It is not as simple as removing and adding points. You need to think about the scoring system that can best predict what a user would like. Also, there could be users that don't mind exploring new songs, where you have to leave the door open to introducing them to new music other than the same songs. I believe this is where collaborative filtering comes in. 
+## Demo
+[Clickable Text](https://www.loom.com/share/dd32baeba0a04ba98337c5a7a32442c1)
