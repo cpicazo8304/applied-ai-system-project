@@ -31,7 +31,7 @@ After ranking, an LLM evaluates whether the recommendations make logical sense g
 - Anthropic API key (get one at [console.anthropic.com](https://console.anthropic.com))
 
 ### Download Data
-- Go to [Clickable Text](https://www.kaggle.com/datasets/serkantysz/550k-spotify-songs-audio-lyrics-and-genres?select=songs.csv)
+- Go to [Spotify Dataset](https://www.kaggle.com/datasets/serkantysz/550k-spotify-songs-audio-lyrics-and-genres?select=songs.csv)
 - Download Data 
 
 ### Installation
@@ -113,5 +113,5 @@ Some of the math wasn't perfect like adding up the weights. I told it specifical
 
 It helped visualize and complete my vision for the project. I wanted to use more data and cluster them together and use agents to help update weights and user profiles, but didn't know how to get started. The AI helped set my ideas up, so I can add to it. The times it was incorrect is when it tried to do too much or didn't have the full context. So, I had to understand that and just get the general ideas, and apply it to my context.
 
-## Demo
-[Clickable Text](https://www.loom.com/share/dd32baeba0a04ba98337c5a7a32442c1)
+## Presentation
+[Loom Presentation](https://www.loom.com/share/dd32baeba0a04ba98337c5a7a32442c1)
